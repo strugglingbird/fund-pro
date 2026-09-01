@@ -1,0 +1,11 @@
+node_modules/
+dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.env.android
+.env.deploy
+backend/fund_pro.db
+__pycache__/
+*.pyc

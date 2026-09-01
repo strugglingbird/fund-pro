@@ -1,0 +1,5 @@
+node_modules
+dist
+.git
+backend/fund_pro.db
+android

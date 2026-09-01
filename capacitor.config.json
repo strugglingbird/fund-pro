@@ -1,0 +1,9 @@
+{
+  "appId": "com.quantworkbench.app",
+  "appName": "量化工作台",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  }
+}

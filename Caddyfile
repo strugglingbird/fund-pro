@@ -1,0 +1,18 @@
+{$WEB_DOMAIN} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy quant-api:5000
+    }
+
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}
+
+{$API_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy quant-api:5000
+}

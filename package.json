@@ -1,0 +1,37 @@
+{
+  "name": "quant-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint",
+    "android:add": "npx cap add android",
+    "build:android": "cross-env VUE_APP_TARGET=capacitor vue-cli-service build --mode android && npx cap sync android",
+    "android:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "axios": "^1.8.4",
+    "core-js": "^3.39.0",
+    "echarts": "^5.5.1",
+    "element-ui": "^2.15.14",
+    "vue": "^2.7.16"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "@vue/cli-plugin-babel": "^5.0.8",
+    "@vue/cli-plugin-eslint": "^5.0.8",
+    "@vue/cli-service": "^5.0.8",
+    "cross-env": "^10.1.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-vue": "^9.30.0",
+    "vue-template-compiler": "^2.7.16"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+}
