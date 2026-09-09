@@ -5,6 +5,12 @@
         reverse_proxy quant-api:5000
     }
 
+    @staticAssets path /js/* /css/* /img/* /fonts/*
+    handle @staticAssets {
+        root * /srv
+        file_server
+    }
+
     handle {
         root * /srv
         try_files {path} /index.html
@@ -22,6 +28,12 @@ http://{$SERVER_IP} {
 
     handle /api/* {
         reverse_proxy quant-api:5000
+    }
+
+    @staticAssets path /js/* /css/* /img/* /fonts/*
+    handle @staticAssets {
+        root * /srv
+        file_server
     }
 
     handle {

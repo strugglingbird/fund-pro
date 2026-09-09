@@ -119,6 +119,14 @@ FUND123_ESTIMATE_URL=
 ### 2. 启动服务
 
 ```bash
+DEPLOY_URL=https://example.com bash scripts/deploy.sh
+```
+
+部署脚本会完整替换前端静态目录、重建服务，并逐一检查首页引用的 JS/CSS 是否真实存在且 MIME 类型正确。校验失败时脚本会返回非零状态，避免把缺少构建资源的版本误认为部署成功。请不要只单独上传 `index.html` 或某个 `app.*.js` 文件。
+
+仅需首次初始化或不更新前端资源时，也可以直接运行：
+
+```bash
 docker compose --env-file .env.deploy up -d --build
 docker compose --env-file .env.deploy ps
 ```
