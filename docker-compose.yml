@@ -2,6 +2,8 @@ services:
   db:
     image: ${MYSQL_IMAGE:-mysql:8.4}
     restart: unless-stopped
+    ports:
+      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_HOST_PORT:-3306}:3306"
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-quant_workbench}
       MYSQL_USER: ${MYSQL_USER:-quant}

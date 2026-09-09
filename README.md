@@ -300,6 +300,8 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 | MYSQL_DATABASE / MYSQL_USER | quant_workbench / quant | 数据库及应用用户 |
 | MYSQL_PASSWORD | Compose 必填 | 应用密码 |
 | MYSQL_ROOT_PASSWORD | Compose 必填 | MySQL 初始化/健康检查 |
+| MYSQL_BIND_ADDRESS | 127.0.0.1 | MySQL 宿主机监听地址；默认仅服务器本机访问 |
+| MYSQL_HOST_PORT | 3306 | MySQL 映射到宿主机的 TCP 端口 |
 | FUND123_ESTIMATE_URL | 默认空 | 自建估值适配地址 |
 | WEB_DOMAIN / API_DOMAIN | .env.deploy 必填 | 站点/API 域名 |
 | SERVER_IP | Compose 有默认，部署应显式改写 | Caddy HTTP IP 入口 |
@@ -360,10 +362,14 @@ MYSQL_DATABASE=quant_workbench
 MYSQL_USER=quant
 MYSQL_PASSWORD=replace-with-a-strong-password
 MYSQL_ROOT_PASSWORD=replace-with-a-different-strong-password
+MYSQL_BIND_ADDRESS=127.0.0.1
+MYSQL_HOST_PORT=3306
 FUND123_ESTIMATE_URL=
 ```
 
-域名 A 记录指向服务器，开放 80/443。默认不向宿主机映射 3306/5000。证书签发依赖 DNS、端口和证书服务可达；HTTP IP 入口不使用自动 TLS。
+域名 A 记录指向服务器，开放 80/443。MySQL 映射为 `${MYSQL_BIND_ADDRESS}:${MYSQL_HOST_PORT} -> db:3306`，默认只监听 127.0.0.1，API 的 5000 端口仍只在 Compose 网络内。远程直连需将监听地址改为 0.0.0.0，并在云安全组和系统防火墙中仅对白名单公网 IP 放行 `MYSQL_HOST_PORT`。MySQL 原生连接不经过 Caddy，也不使用网站 HTTPS 证书。证书签发依赖 DNS、端口和证书服务可达；HTTP IP 入口不使用自动 TLS。
+
+远程数据库客户端参数：主机填写服务器公网 IP，端口填写 `MYSQL_HOST_PORT`，数据库和账号使用 `MYSQL_DATABASE`、`MYSQL_USER`。应用账号仅用于工作台数据访问，日常远程连接不应使用 root。若不再需要公网访问，将 `MYSQL_BIND_ADDRESS` 改为 `127.0.0.1` 并重新创建 db 容器。
 
 ```bash
 DEPLOY_URL=https://example.com bash scripts/deploy.sh
@@ -373,7 +379,7 @@ DEPLOY_URL=https://example.com bash scripts/deploy.sh
 
 | 服务 | 内容与存储 |
 | --- | --- |
-| db | MySQL/mysql_data 卷；健康检查通过后 API 启动 |
+| db | MySQL/mysql_data 卷；宿主机端口由 MYSQL_BIND_ADDRESS/MYSQL_HOST_PORT 控制；健康检查通过后 API 启动 |
 | quant-api | 安装 requirements、复制 backend、python -u run.py；进程内归档线程 |
 | caddy | frontend:/srv、Caddyfile；caddy_data/caddy_config 保存证书和配置 |
 
