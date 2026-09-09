@@ -50,6 +50,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self._send_json({"items": service.list_holdings()})
         if parsed.path == "/api/watchlist":
             return self._send_json(service.list_watchlist())
+        if parsed.path == "/api/portfolio/intraday-pnl":
+            return self._send_json(service.get_portfolio_intraday_pnl())
         if parsed.path == "/api/market-indices":
             return self._send_json(service.get_market_indices())
         if parsed.path == "/api/news":

@@ -52,6 +52,10 @@ export function fetchFundHistory(code, startDate, endDate) {
 }
 export function fetchFundPerformance(code, interval) { return request.get('/instruments/fund-performance', { params: { code, interval }, timeout: 30000 }) }
 
+export function fetchPortfolioIntradayPnl(force = false) {
+  return request.get('/portfolio/intraday-pnl', { params: { force }, timeout: force ? 120000 : 60000 })
+}
+
 export function fetchWatchlist(force = false) { return request.get('/watchlist', { params: { force }, timeout: force ? 120000 : 45000 }) }
 export function saveWatchlistGroup(payload) { return request.post('/watchlist/groups', payload) }
 export function removeWatchlistGroup(id) { return request.delete(`/watchlist/groups/${id}`) }

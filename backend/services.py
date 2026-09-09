@@ -1,7 +1,42 @@
 from datetime import datetime
 
 from database import get_connection, init_db
-from providers import fetch_akshare_watch_quote, fetch_financial_news, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, market_now
+from fund_archives import read_archive
+from providers import cache_market_value, fetch_akshare_watch_quote, fetch_financial_news, fetch_fund123_intraday_chart, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, fetch_tencent_intraday_chart, market_now
+
+
+# Indices offered for intraday comparison with the portfolio P&L curve.
+PNL_TREND_INDEX_TARGETS = (
+    ("sh000001", "上证指数"),
+    ("sz399006", "创业板指"),
+    ("sh000688", "科创50")
+)
+PNL_TREND_CACHE_TTL = 60
+# A-share continuous trading minutes, used as the canonical intraday grid.
+INTRADAY_SESSIONS = ((9 * 60 + 30, 11 * 60 + 30), (13 * 60, 15 * 60))
+
+
+def intraday_minute_grid():
+    """Return every trading minute from 09:30 to 15:00 as ``HH:MM`` strings."""
+    grid = []
+    for start, end in INTRADAY_SESSIONS:
+        for minute in range(start, end + 1):
+            grid.append(f"{minute // 60:02d}:{minute % 60:02d}")
+    return grid
+
+
+def forward_fill(points, grid):
+    """Align sorted ``(time, value)`` pairs onto the minute grid, carrying values forward."""
+    ordered = sorted(points, key=lambda item: item[0])
+    values = []
+    cursor = 0
+    last = None
+    for minute in grid:
+        while cursor < len(ordered) and ordered[cursor][0] <= minute:
+            last = ordered[cursor][1]
+            cursor += 1
+        values.append(last)
+    return values
 
 
 DEMO_HOLDINGS = [
@@ -309,6 +344,116 @@ class DashboardService:
 
     def get_intraday_chart(self, asset_type, code):
         return fetch_intraday_chart(asset_type, code)
+
+    def get_portfolio_intraday_pnl(self):
+        """Aggregate today's estimated P&L curve and align benchmark index moves."""
+        cached = cache_market_value("portfolio-intraday-pnl")
+        if cached is not None:
+            return cached
+        return cache_market_value("portfolio-intraday-pnl", self._build_portfolio_intraday_pnl, PNL_TREND_CACHE_TTL)
+
+    @staticmethod
+    def _load_intraday_curve(holding, trade_date):
+        """Prefer today's captured archive, otherwise fall back to the live intraday curve."""
+        code = holding["code"]
+        asset_type = holding["asset_type"]
+        if asset_type in ("fund", "stock", "etf"):
+            archived = read_archive(code, trade_date, asset_type)
+            if archived:
+                return archived
+        if asset_type == "fund":
+            return fetch_fund123_intraday_chart(code)
+        if asset_type in ("stock", "etf"):
+            return fetch_tencent_intraday_chart(code)
+        return None
+
+    def _build_portfolio_intraday_pnl(self):
+        now = market_now()
+        trade_date = now.strftime("%Y-%m-%d")
+        grid = intraday_minute_grid()
+        holdings = self.list_holdings()
+        contributions = []
+        missing = []
+        base_value = 0.0
+        sources = set()
+
+        for holding in holdings:
+            curve = self._load_intraday_curve(holding, trade_date)
+            previous_close = float((curve or {}).get("previous_close") or 0)
+            points = (curve or {}).get("points") or []
+            pairs = [
+                (item.get("time"), float(item["price"]))
+                for item in points
+                if item.get("time") and item.get("price") is not None
+            ]
+            if not curve or previous_close <= 0 or not pairs:
+                missing.append({"name": holding["name"], "code": holding["code"], "asset_type": holding["asset_type"]})
+                continue
+            quantity = float(holding["quantity"])
+            filled = forward_fill(pairs, grid)
+            contributions.append([
+                quantity * (value - previous_close) if value is not None else None
+                for value in filled
+            ])
+            base_value += quantity * previous_close
+            sources.add("fund123 盘中预估" if holding["asset_type"] == "fund" else "腾讯分时行情")
+
+        pnl = []
+        rate = []
+        for index in range(len(grid)):
+            values = [series[index] for series in contributions]
+            if not any(value is not None for value in values):
+                pnl.append(None)
+                rate.append(None)
+                continue
+            total = sum(value or 0 for value in values)
+            pnl.append(round(total, 2))
+            rate.append(round(total / base_value * 100, 4) if base_value else None)
+
+        indices = []
+        for symbol, name in PNL_TREND_INDEX_TARGETS:
+            chart = fetch_tencent_intraday_chart(symbol, is_index=True)
+            previous_close = float((chart or {}).get("previous_close") or 0)
+            points = (chart or {}).get("points") or []
+            pairs = [
+                (item.get("time"), float(item["price"]))
+                for item in points
+                if item.get("time") and item.get("price") is not None
+            ]
+            if not chart or previous_close <= 0 or not pairs:
+                indices.append({"code": symbol, "name": name, "available": False, "rate": []})
+                continue
+            filled = forward_fill(pairs, grid)
+            indices.append({
+                "code": symbol,
+                "name": name,
+                "available": True,
+                "rate": [
+                    round((value - previous_close) / previous_close * 100, 4) if value is not None else None
+                    for value in filled
+                ]
+            })
+
+        source_label = "暂无可用分时数据"
+        if sources:
+            source_label = f"持仓 {'、'.join(sorted(sources))}；指数 腾讯分时行情"
+        return {
+            "trade_date": trade_date,
+            "times": grid,
+            "portfolio": {
+                "available": bool(contributions),
+                "name": "我的持仓预估收益",
+                "pnl": pnl,
+                "rate": rate,
+                "base_value": round(base_value, 2),
+                "covered": len(contributions),
+                "total": len(holdings)
+            },
+            "indices": indices,
+            "missing_holdings": missing,
+            "source_label": source_label,
+            "generated_at": now.strftime("%Y-%m-%d %H:%M:%S")
+        }
 
     @staticmethod
     def _empty_news():

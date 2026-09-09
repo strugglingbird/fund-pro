@@ -57,7 +57,7 @@
       <el-row :gutter="18" class="stats-row holdings-summary">
         <el-col :xs="24" :sm="12" :lg="6"><div class="stat-card"><div class="stat-label">持仓总市值</div><div class="stat-value">{{ formatHoldingMoney(dashboard.portfolio.total_market_value) }}</div><div class="stat-foot">按现价或最新估值计入</div></div></el-col>
         <el-col :xs="24" :sm="12" :lg="6"><div class="stat-card"><div class="stat-label">累计持仓收益</div><div class="stat-value" :class="profitClass(dashboard.portfolio.total_holding_pnl)">{{ formatHoldingMoney(dashboard.portfolio.total_holding_pnl) }}</div><div class="stat-foot" :class="profitClass(dashboard.portfolio.total_holding_pnl_rate)">收益率 {{ formatHoldingPercent(dashboard.portfolio.total_holding_pnl_rate) }}</div></div></el-col>
-        <el-col :xs="24" :sm="12" :lg="6"><div class="stat-card"><div class="stat-label">累计今日预估收益</div><div class="stat-value" :class="profitClass(dashboard.portfolio.total_estimated_pnl)">{{ formatHoldingMoney(dashboard.portfolio.total_estimated_pnl) }}</div><div class="stat-foot" :class="profitClass(dashboard.portfolio.total_estimated_pnl_rate)">涨跌幅 {{ formatHoldingPercent(dashboard.portfolio.total_estimated_pnl_rate) }}</div></div></el-col>
+        <el-col :xs="24" :sm="12" :lg="6"><div class="stat-card stat-card--clickable" role="button" tabindex="0" title="查看当日收益走势与指数对比" @click="openPnlTrendDialog"><div class="stat-label">累计今日预估收益</div><div class="stat-value" :class="profitClass(dashboard.portfolio.total_estimated_pnl)">{{ formatHoldingMoney(dashboard.portfolio.total_estimated_pnl) }}</div><div class="stat-foot" :class="profitClass(dashboard.portfolio.total_estimated_pnl_rate)">涨跌幅 {{ formatHoldingPercent(dashboard.portfolio.total_estimated_pnl_rate) }}<span class="stat-card-hint">走势对比</span></div></div></el-col>
         <el-col :xs="24" :sm="12" :lg="6"><div class="stat-card"><div class="stat-label">累计今日实际收益</div><div class="stat-value" :class="profitClass(dashboard.portfolio.total_today_pnl)">{{ formatHoldingMoney(dashboard.portfolio.total_today_pnl) }}</div><div class="stat-foot" :class="profitClass(dashboard.portfolio.total_today_pnl_rate)">涨跌幅 {{ formatHoldingPercent(dashboard.portfolio.total_today_pnl_rate) }}</div></div></el-col>
       </el-row>
       <el-card shadow="never" class="panel-card">
@@ -166,11 +166,35 @@
         <el-button type="primary" :loading="savingEdit" @click="submitHoldingEdit">保存修改</el-button>
       </span>
     </el-dialog>
+
+    <el-dialog title="当日收益走势 · 指数对比" :visible.sync="pnlTrendDialogVisible" width="860px" @opened="renderPnlTrendChart">
+      <div class="pnl-trend-toolbar">
+        <span class="pnl-trend-toolbar-label">对比指数</span>
+        <el-checkbox-group v-model="pnlTrendIndexCodes" :disabled="pnlTrendLoading">
+          <el-checkbox v-for="index in pnlTrend.indices" :key="index.code" :label="index.code" :disabled="!index.available">{{ index.name }}</el-checkbox>
+        </el-checkbox-group>
+        <el-button type="text" :loading="pnlTrendLoading" @click="loadPnlTrend(true)">重新抓取</el-button>
+      </div>
+
+      <div v-if="pnlTrendLoading" class="pnl-trend-skeleton"><i /><i /><i /><i /></div>
+      <div v-else-if="pnlTrendError" class="empty-state">{{ pnlTrendError }}</div>
+      <div v-else-if="!pnlTrend.portfolio.available" class="empty-state">暂无当日收益走势，请确认持仓已录入且行情可用。</div>
+      <template v-else>
+        <div ref="pnlTrendChart" class="pnl-trend-chart" />
+        <div class="pnl-trend-meta">
+          <span>昨收基准 {{ formatHoldingMoney(pnlTrend.portfolio.base_value) }}</span>
+          <span>覆盖 {{ pnlTrend.portfolio.covered }}/{{ pnlTrend.portfolio.total }} 个持仓</span>
+          <span v-if="pnlTrend.missing_holdings.length">未取到分时：{{ pnlTrend.missing_holdings.map(item => item.name).join('、') }}</span>
+          <span>{{ pnlTrend.source_label }}</span>
+          <span>{{ pnlTrend.generated_at }}</span>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script>
-import { fetchEstimateArchive } from './api/dashboard'
+import { fetchEstimateArchive, fetchPortfolioIntradayPnl } from './api/dashboard'
 import * as echarts from 'echarts'
 import { deleteHolding, fetchDashboard, fetchFundHistory, fetchFundHoldings, fetchFundPerformance, fetchIntradayChart, fetchMarketIndices, fetchNews, fetchWatchlist, lookupInstrument, moveWatchlistGroup, removeWatchlistGroup, removeWatchlistItem, saveHolding, saveWatchlistGroup, saveWatchlistItem, seedDemo, updateHolding } from './api/dashboard'
 
@@ -223,6 +247,24 @@ const defaultHistoryRange = () => {
   return [format(start), format(end)]
 }
 
+const DEFAULT_PNL_TREND_INDICES = ['sh000001', 'sz399006', 'sh000688']
+
+const PNL_TREND_INDEX_COLORS = {
+  sh000001: '#f0a13c',
+  sz399006: '#7c5cff',
+  sh000688: '#2aa7c4'
+}
+
+const emptyPnlTrend = () => ({
+  trade_date: '',
+  times: [],
+  portfolio: { available: false, name: '', pnl: [], rate: [], base_value: 0, covered: 0, total: 0 },
+  indices: [],
+  missing_holdings: [],
+  source_label: '',
+  generated_at: ''
+})
+
 export default {
   name: 'App',
   data() {
@@ -271,6 +313,11 @@ export default {
       fundPerformanceCode: '',
       fundPerformanceInterval: 'THREE',
       fundPerformance: { fund: [], index: [] },
+      pnlTrendDialogVisible: false,
+      pnlTrendLoading: false,
+      pnlTrendError: '',
+      pnlTrend: emptyPnlTrend(),
+      pnlTrendIndexCodes: DEFAULT_PNL_TREND_INDICES.slice(),
       fundChartTab: 'intraday',
       holdingForm: newHoldingForm(),
       createDialogVisible: false,
@@ -407,6 +454,9 @@ export default {
     },
     watchlistCategory() {
       this.$nextTick(() => this.ensureWatchGroup())
+    },
+    pnlTrendIndexCodes() {
+      this.$nextTick(() => this.renderPnlTrendChart())
     }
   },
   mounted() {
@@ -421,6 +471,7 @@ export default {
     this.stopPrivacyDrag()
     window.clearInterval(this.newsRefreshTimer)
     if (this.intradayInstance) this.intradayInstance.dispose()
+    if (this.pnlTrendInstance) this.pnlTrendInstance.dispose()
   },
   created() {
     this.bootstrap()
@@ -823,9 +874,128 @@ export default {
       }, true)
       this.intradayInstance.resize()
     },
+    openPnlTrendDialog() {
+      this.pnlTrendDialogVisible = true
+      this.loadPnlTrend()
+    },
+    async loadPnlTrend(force = false) {
+      if (this.pnlTrendLoading) return
+      this.pnlTrendLoading = true
+      this.pnlTrendError = ''
+      try {
+        const { data } = await fetchPortfolioIntradayPnl(force)
+        this.pnlTrend = data
+        if (!this.pnlTrendIndexCodes.length && data.indices.length) {
+          this.pnlTrendIndexCodes = data.indices.map(item => item.code)
+        }
+        this.$nextTick(() => this.renderPnlTrendChart())
+      } catch (error) {
+        this.pnlTrendError = error.response?.data?.error || '当日收益走势加载失败，请稍后重试'
+      } finally {
+        this.pnlTrendLoading = false
+      }
+    },
+    renderPnlTrendChart() {
+      const container = this.$refs.pnlTrendChart
+      if (!this.pnlTrendDialogVisible || this.pnlTrendLoading || !container || !this.pnlTrend.portfolio.available) return
+      if (this.pnlTrendInstance && this.pnlTrendInstance.getDom() !== container) {
+        this.pnlTrendInstance.dispose()
+        this.pnlTrendInstance = null
+      }
+      const times = this.pnlTrend.times
+      const pnl = this.pnlTrend.portfolio.pnl
+      const lastPnl = [...pnl].reverse().find(value => value !== null && value !== undefined)
+      const positive = Number(lastPnl || 0) >= 0
+      const portfolioColor = positive ? '#d64541' : '#0f9960'
+      const visible = this.pnlTrend.indices.filter(item => item.available && this.pnlTrendIndexCodes.includes(item.code))
+      const masked = !this.holdingsNumbersVisible
+
+      const series = [{
+        name: '我的持仓预估收益',
+        type: 'line',
+        yAxisIndex: 0,
+        showSymbol: false,
+        smooth: true,
+        data: pnl,
+        lineStyle: { color: portfolioColor, width: 2.5 },
+        areaStyle: { color: positive ? 'rgba(214, 69, 65, 0.12)' : 'rgba(15, 153, 96, 0.12)' },
+        markLine: { symbol: 'none', lineStyle: { color: '#8394aa', type: 'dashed' }, label: { formatter: '盈亏平衡' }, data: [{ yAxis: 0 }] }
+      }]
+      visible.forEach(item => {
+        series.push({
+          name: item.name,
+          type: 'line',
+          yAxisIndex: 1,
+          showSymbol: false,
+          smooth: true,
+          data: item.rate,
+          lineStyle: { color: PNL_TREND_INDEX_COLORS[item.code] || '#8394aa', width: 1.6 }
+        })
+      })
+
+      this.pnlTrendInstance = this.pnlTrendInstance || echarts.init(container)
+      this.pnlTrendInstance.setOption({
+        animationDuration: 350,
+        backgroundColor: '#f8fbff',
+        grid: { left: 74, right: 62, top: 52, bottom: 48 },
+        legend: {
+          top: 8,
+          textStyle: { color: '#6b7a90' },
+          data: series.map(item => item.name)
+        },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(16, 35, 63, 0.92)',
+          borderWidth: 0,
+          textStyle: { color: '#fff' },
+          formatter: params => {
+            const head = params[0].axisValue
+            const lines = params
+              .filter(item => item.value !== null && item.value !== undefined)
+              .map(item => {
+                const unit = item.seriesName === '我的持仓预估收益' ? (masked ? '' : ' 元') : '%'
+                const value = item.seriesName === '我的持仓预估收益' && masked
+                  ? '****'
+                  : Number(item.value).toFixed(2)
+                return `${item.marker}${item.seriesName}：${value}${unit}`
+              })
+            return [head, ...lines].join('<br/>')
+          }
+        },
+        xAxis: {
+          type: 'category',
+          boundaryGap: false,
+          data: times,
+          axisLine: { lineStyle: { color: '#ccd9e8' } },
+          axisLabel: { color: '#6b7a90', interval: Math.max(Math.floor(times.length / 6), 1) }
+        },
+        yAxis: [
+          {
+            type: 'value',
+            name: '预估收益(元)',
+            nameTextStyle: { color: '#6b7a90' },
+            scale: true,
+            show: !masked,
+            axisLabel: { color: '#6b7a90', formatter: value => Number(value).toFixed(0) },
+            splitLine: { lineStyle: { color: '#e5edf6', type: 'dashed' } }
+          },
+          {
+            type: 'value',
+            name: '涨跌幅(%)',
+            nameTextStyle: { color: '#6b7a90' },
+            scale: true,
+            axisLabel: { color: '#6b7a90', formatter: value => `${Number(value).toFixed(2)}%` },
+            splitLine: { show: false }
+          }
+        ],
+        series
+      }, true)
+      this.pnlTrendInstance.resize()
+    },
     resizeIntradayChart() {
       if (this.intradayInstance) this.intradayInstance.resize()
       if (this.fundPerformanceInstance) this.fundPerformanceInstance.resize()
+      if (this.pnlTrendInstance) this.pnlTrendInstance.resize()
     },
     async submitHolding() {
       this.savingCreate = true
@@ -1648,6 +1818,77 @@ h1 {
   font-size: 21px;
   letter-spacing: -0.02em;
   white-space: nowrap;
+}
+
+.stat-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.stat-card--clickable:hover,
+.stat-card--clickable:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 12px 32px rgba(16, 35, 63, 0.12);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.stat-card-hint {
+  float: right;
+  color: var(--accent);
+}
+
+.pnl-trend-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.pnl-trend-toolbar-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pnl-trend-chart {
+  width: 100%;
+  height: 380px;
+}
+
+.pnl-trend-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pnl-trend-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 380px;
+  justify-content: center;
+}
+
+.pnl-trend-skeleton i {
+  display: block;
+  height: 18px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(16, 35, 63, 0.06), rgba(16, 35, 63, 0.12), rgba(16, 35, 63, 0.06));
+  background-size: 200% 100%;
+  animation: pnlTrendShimmer 1.3s ease-in-out infinite;
+}
+
+.pnl-trend-skeleton i:nth-child(2) { height: 46px; }
+.pnl-trend-skeleton i:nth-child(3) { height: 68px; }
+.pnl-trend-skeleton i:nth-child(4) { height: 34px; }
+
+@keyframes pnlTrendShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .panel-card {
