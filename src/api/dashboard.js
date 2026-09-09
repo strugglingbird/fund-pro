@@ -9,7 +9,7 @@ const request = axios.create({
 })
 
 export function fetchDashboard(force = false) {
-  return request.get('/dashboard', { params: { force }, timeout: force ? 120000 : 15000 })
+  return request.get('/dashboard', { params: { force }, timeout: 120000 })
 }
 
 export function fetchHoldings() {

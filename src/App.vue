@@ -612,25 +612,29 @@ export default {
       }
     },
     async refreshDashboard(force = false) {
+      if (this.loading) return
       this.loading = true
       try {
         const { data } = await fetchDashboard(force)
         this.dashboard = data
         this.dashboardLoaded = true
       } catch (error) {
-        this.$message.error(error.response?.data?.error || '看板刷新失败')
+        this.$message.error(error.response?.data?.error || (error.code === 'ECONNABORTED'
+          ? '看板数据源响应超时，已保留原数据，请稍后刷新'
+          : '看板刷新失败，请检查网络后重试'))
       } finally {
         this.loading = false
       }
     },
     async loadMarketIndices(force = false) {
+      if (this.marketIndicesLoading) return
       this.marketIndicesLoading = true
       try {
         const { data } = await fetchMarketIndices(force === true)
         this.marketIndices = data.items || []
         this.indicesUpdatedAt = data.generated_at || ''
       } catch (error) {
-        this.marketIndices = []
+        // Retain the last successful quotes when a background refresh fails.
       } finally {
         this.marketIndicesLoading = false
       }
