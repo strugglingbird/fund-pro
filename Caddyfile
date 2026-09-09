@@ -16,3 +16,17 @@
     encode zstd gzip
     reverse_proxy quant-api:5000
 }
+
+http://{$SERVER_IP} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy quant-api:5000
+    }
+
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}

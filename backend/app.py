@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from services import DashboardService
+from providers import FORCE_REFRESH
 from providers import fetch_fund123_history_nav_list, fetch_fund123_holdings, fetch_fund123_performance_curve, lookup_instrument
 
 
@@ -17,6 +18,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -32,6 +34,14 @@ class AppHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True})
 
     def do_GET(self):
+        force = parse_qs(urlparse(self.path).query).get("force", [""])[0] == "true"
+        token = FORCE_REFRESH.set(force)
+        try:
+            return self._handle_get()
+        finally:
+            FORCE_REFRESH.reset(token)
+
+    def _handle_get(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/dashboard":
             return self._send_json(service.get_dashboard())

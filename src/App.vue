@@ -11,7 +11,7 @@
       </el-menu>
     </header>
 
-    <button type="button" class="refresh-fab" :class="{ 'is-loading': loading }" :style="refreshFabStyle" aria-label="刷新数据" title="刷新数据" @mousedown="startRefreshDrag" @touchstart="startRefreshDrag" @touchend.stop.prevent="finishRefreshTouch" @touchcancel="stopRefreshDrag" @click="handleRefreshFabClick"><i class="el-icon-refresh" /></button>
+    <button type="button" class="refresh-fab" :class="{ 'is-loading': loading || refreshingAll }" :disabled="refreshingAll" :style="refreshFabStyle" aria-label="刷新数据" title="重新抓取全部数据" @mousedown="startRefreshDrag" @touchstart="startRefreshDrag" @touchend.stop.prevent="finishRefreshTouch" @touchcancel="stopRefreshDrag" @click="handleRefreshFabClick"><i class="el-icon-refresh" /></button>
     <button type="button" class="privacy-fab" :class="{ 'is-visible': holdingsNumbersVisible }" :style="privacyFabStyle" :aria-label="holdingsNumbersVisible ? '隐藏数字' : '展示数字'" :title="holdingsNumbersVisible ? '隐藏数字' : '展示数字'" @mousedown="startPrivacyDrag" @touchstart="startPrivacyDrag" @touchend.stop.prevent="finishPrivacyTouch" @touchcancel="stopPrivacyDrag" @click="toggleHoldingNumbers"><i class="el-icon-view" /></button>
 
     <section v-if="activeMenu === 'home'" :class="{ 'page-skeleton-loading': isDashboardInitialLoading }">
@@ -57,7 +57,7 @@
       </el-row>
       <el-card shadow="never" class="panel-card">
         <div slot="header" class="panel-header"><span>当日持仓收益</span><div class="panel-actions"><span class="panel-tip">股票 / ETF / 场外基金</span><el-button type="primary" size="small" @click="openCreateHolding">新增持仓</el-button></div></div>
-        <el-table :data="dashboard.portfolio.positions" stripe :class="{ 'table-skeleton table-skeleton-wide': isDashboardInitialLoading }">
+        <el-table :data="sortedHoldingPositions" stripe :class="{ 'table-skeleton table-skeleton-wide': isDashboardInitialLoading }">
           <el-table-column prop="name" label="名称" min-width="170"><template slot-scope="{ row }"><el-button type="text" class="position-link" @click="openIntradayChart(row)">{{ row.name }}</el-button></template></el-table-column><el-table-column prop="code" label="代码" width="110"><template slot-scope="{ row }">{{ formatHoldingCode(row.code) }}</template></el-table-column><el-table-column prop="asset_type" label="类型" width="110"><template slot-scope="{ row }"><el-tag size="mini" :type="assetTypeTag(row.asset_type)">{{ assetTypeLabel(row.asset_type) }}</el-tag></template></el-table-column><el-table-column prop="quantity" label="持仓份额" width="110"><template slot-scope="{ row }">{{ formatHoldingQuantity(row.quantity) }}</template></el-table-column><el-table-column prop="cost_price" label="成本价" width="110"><template slot-scope="{ row }">{{ formatHoldingCostPrice(row.cost_price) }}</template></el-table-column><el-table-column prop="previous_close" label="昨日收盘价" width="110"><template slot-scope="{ row }">{{ formatHoldingNetValue(row.previous_close, row.asset_type) }}</template></el-table-column><el-table-column prop="current_price" label="现价" width="110"><template slot-scope="{ row }">{{ formatHoldingNetValue(row.current_price, row.asset_type) }}</template></el-table-column><el-table-column prop="estimated_price" label="估值" width="110"><template slot-scope="{ row }">{{ formatHoldingNetValue(row.estimated_price, row.asset_type) }}</template></el-table-column><el-table-column prop="estimated_change_rate" label="预估涨幅" width="105"><template slot-scope="{ row }"><span :class="profitClass(row.estimated_change_rate)">{{ formatHoldingPercent(row.estimated_change_rate, true) }}</span></template></el-table-column><el-table-column prop="estimated_pnl" label="预估收益" width="120"><template slot-scope="{ row }"><span :class="profitClass(row.estimated_pnl)">{{ formatHoldingMoney(row.estimated_pnl, true) }}</span></template></el-table-column><el-table-column prop="daily_change_rate" label="当日涨幅" width="105"><template slot-scope="{ row }"><span :class="profitClass(row.daily_change_rate)">{{ formatHoldingPercent(row.daily_change_rate, true) }}</span></template></el-table-column><el-table-column prop="today_pnl" label="当日收益" width="120"><template slot-scope="{ row }"><span :class="profitClass(row.today_pnl)">{{ formatHoldingMoney(row.today_pnl, true) }}</span></template></el-table-column><el-table-column prop="holding_pnl" label="持有收益" width="120"><template slot-scope="{ row }"><span :class="profitClass(row.holding_pnl)">{{ formatHoldingMoney(row.holding_pnl) }}</span></template></el-table-column><el-table-column prop="holding_pnl_rate" label="持有收益率" width="110"><template slot-scope="{ row }"><span :class="profitClass(row.holding_pnl_rate)">{{ formatHoldingPercent(row.holding_pnl_rate) }}</span></template></el-table-column><el-table-column label="操作" width="130" fixed="right"><template slot-scope="{ row }"><el-button type="text" @click="openEditHolding(row)">修改</el-button><el-button type="text" class="danger-text" @click="removeHolding(row.id)">删除</el-button></template></el-table-column>
         </el-table>
       </el-card>
@@ -88,6 +88,7 @@
       <template v-else-if="fundChartTab === 'intraday'">
         <template v-if="intradayChart.points.length">
           <div class="chart-meta"><span>昨收：{{ formatIntradayPrice(intradayChart.previous_close, intradayChart.asset_type) }}</span><span>最新：{{ formatIntradayPrice(intradayChart.points[intradayChart.points.length - 1].price, intradayChart.asset_type) }}</span><span>{{ intradayChart.source_label }}</span></div>
+          <div v-if="intradayChart.asset_type === 'fund'" class="chart-meta">估值更新时间：{{ intradayChart.updated_at || '--' }}</div>
           <div ref="intradayChart" class="intraday-chart" role="img" aria-label="当日分时走势"></div>
         </template>
         <div v-else class="chart-loading">暂无当日分时数据</div>
@@ -213,6 +214,7 @@ export default {
   data() {
     return {
       loading: false,
+      refreshingAll: false,
       dashboardLoaded: false,
       activeMenu: 'home',
       holdingsNumbersVisible: false,
@@ -273,6 +275,18 @@ export default {
     }
   },
   computed: {
+    sortedHoldingPositions() {
+      const rate = item => {
+        const value = item.estimated_change_rate
+        return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+          ? Number(value) : -Infinity
+      }
+      return [...this.dashboard.portfolio.positions].sort((left, right) => {
+        const a = rate(left)
+        const b = rate(right)
+        return a === b ? 0 : b - a
+      })
+    },
     statCards() {
       return [
         {
@@ -395,11 +409,13 @@ export default {
     this.bootstrap()
   },
   methods: {
-    async bootstrap(forceNews = false) {
-      await Promise.all([this.refreshDashboard(), this.loadMarketIndices(), this.loadNews(forceNews)])
+    async bootstrap(force = false) {
+      await Promise.all([this.refreshDashboard(force), this.loadMarketIndices(force), this.loadNews(force), ...(force ? [this.loadWatchlist(true)] : [])])
     },
     async refreshAll() {
-      await this.bootstrap(true)
+      if (this.refreshingAll) return
+      this.refreshingAll = true
+      try { await this.bootstrap(true) } finally { this.refreshingAll = false }
     },
     handleRefreshFabClick() {
       if (this.refreshFab.moved) return
@@ -494,7 +510,7 @@ export default {
       if (this.watchlistLoading || (!force && this.watchlistLoaded)) return
       this.watchlistLoading = true
       try {
-        const { data } = await fetchWatchlist()
+        const { data } = await fetchWatchlist(force)
         this.watchlist = data
         this.watchlistLoaded = true
         this.ensureWatchGroup()
@@ -578,7 +594,7 @@ export default {
       if (this.newsLoading || (!force && this.newsFeed.groups.length)) return
       this.newsLoading = true
       try {
-        const { data } = await fetchNews()
+        const { data } = await fetchNews(force)
         this.newsFeed = data
       } catch (error) {
         this.$message.error(error.response?.data?.error || '财经快讯加载失败')
@@ -586,10 +602,10 @@ export default {
         this.newsLoading = false
       }
     },
-    async refreshDashboard() {
+    async refreshDashboard(force = false) {
       this.loading = true
       try {
-        const { data } = await fetchDashboard()
+        const { data } = await fetchDashboard(force)
         this.dashboard = data
         this.dashboardLoaded = true
       } catch (error) {
@@ -598,10 +614,10 @@ export default {
         this.loading = false
       }
     },
-    async loadMarketIndices() {
+    async loadMarketIndices(force = false) {
       this.marketIndicesLoading = true
       try {
-        const { data } = await fetchMarketIndices()
+        const { data } = await fetchMarketIndices(force === true)
         this.marketIndices = data.items || []
         this.indicesUpdatedAt = data.generated_at || ''
       } catch (error) {
@@ -630,11 +646,11 @@ export default {
       try {
         const { data } = await fetchIntradayChart(holding.code, holding.asset_type)
         this.intradayChart = { ...data, asset_type: holding.asset_type }
-        this.$nextTick(() => this.renderIntradayChart())
       } catch (error) {
         this.$message.warning(error.response?.data?.error || '分时数据加载失败')
       } finally {
         this.intradayLoading = false
+        this.$nextTick(() => this.renderIntradayChart())
       }
       if (fundHoldingsRequest) {
         try {
@@ -675,6 +691,7 @@ export default {
     },
     handleFundChartTab(tab) {
       if (tab.name === 'performance') this.$nextTick(() => this.renderFundPerformance())
+      else this.$nextTick(() => this.renderIntradayChart())
     },
     renderFundPerformance() {
       if (!this.$refs.fundPerformanceChart || !this.fundPerformance.fund.length) return
@@ -700,7 +717,12 @@ export default {
       }
     },
     renderIntradayChart() {
-      if (!this.$refs.intradayChart || !this.intradayChart.points.length) return
+      if (!this.intradayDialogVisible || this.intradayLoading || this.fundChartTab !== 'intraday' || !this.$refs.intradayChart || !this.intradayChart.points.length) return
+      // v-if recreates the container after loading or switching chart tabs.
+      if (this.intradayInstance && this.intradayInstance.getDom() !== this.$refs.intradayChart) {
+        this.intradayInstance.dispose()
+        this.intradayInstance = null
+      }
       const points = this.intradayChart.points
       const previousClose = Number(this.intradayChart.previous_close)
       const lastPrice = Number(points[points.length - 1].price)
@@ -744,9 +766,11 @@ export default {
           markLine: previousClose ? { symbol: 'none', lineStyle: { color: '#8394aa', type: 'dashed' }, label: { formatter: `昨收 ${previousClose.toFixed(4)}` }, data: [{ yAxis: previousClose }] } : undefined
         }]
       }, true)
+      this.intradayInstance.resize()
     },
     resizeIntradayChart() {
       if (this.intradayInstance) this.intradayInstance.resize()
+      if (this.fundPerformanceInstance) this.fundPerformanceInstance.resize()
     },
     async submitHolding() {
       this.savingCreate = true

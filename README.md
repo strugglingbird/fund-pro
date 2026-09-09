@@ -106,6 +106,7 @@ cp .env.deploy.example .env.deploy
 ```dotenv
 WEB_DOMAIN=example.com
 API_DOMAIN=api.example.com
+SERVER_IP=203.0.113.10
 MYSQL_DATABASE=quant_workbench
 MYSQL_USER=quant
 MYSQL_PASSWORD=use-a-long-random-password
@@ -165,6 +166,8 @@ npm run android:add
 ```
 
 ## 运行时配置与数据源
+
+手动点击悬浮刷新按钮会通过 `force=true` 重新抓取持仓、市场指数、板块排名、市场温度、财经快讯和自选数据，跳过后端缓存（包括基金昨收净值和收盘后的行情缓存）。普通页面加载仍使用缓存。刷新期间按钮显示等待状态并防止重复提交；公开接口仍可能返回延迟行情或暂无数据，强制刷新不保证数据源产生新报价。
 
 - 场内标的与主要指数使用公开行情源；市场指数接口会缓存最近有效结果，并将耗时较长的韩国指数放到后台刷新，保障首屏响应。
 - 板块排名、资金流、市场宽度和财经快讯主要通过 AkShare 获取。

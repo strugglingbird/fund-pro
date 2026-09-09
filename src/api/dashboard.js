@@ -8,20 +8,20 @@ const request = axios.create({
   timeout: 15000
 })
 
-export function fetchDashboard() {
-  return request.get('/dashboard')
+export function fetchDashboard(force = false) {
+  return request.get('/dashboard', { params: { force }, timeout: force ? 120000 : 15000 })
 }
 
 export function fetchHoldings() {
   return request.get('/holdings')
 }
 
-export function fetchMarketIndices() {
-  return request.get('/market-indices')
+export function fetchMarketIndices(force = false) {
+  return request.get('/market-indices', { params: { force }, timeout: force ? 120000 : 15000 })
 }
 
-export function fetchNews() {
-  return request.get('/news', { timeout: 45000 })
+export function fetchNews(force = false) {
+  return request.get('/news', { params: { force }, timeout: force ? 120000 : 45000 })
 }
 
 export function lookupInstrument(code, assetType) {
@@ -48,7 +48,7 @@ export function fetchFundHistory(code, startDate, endDate) {
 }
 export function fetchFundPerformance(code, interval) { return request.get('/instruments/fund-performance', { params: { code, interval }, timeout: 30000 }) }
 
-export function fetchWatchlist() { return request.get('/watchlist', { timeout: 45000 }) }
+export function fetchWatchlist(force = false) { return request.get('/watchlist', { params: { force }, timeout: force ? 120000 : 45000 }) }
 export function saveWatchlistGroup(payload) { return request.post('/watchlist/groups', payload) }
 export function removeWatchlistGroup(id) { return request.delete(`/watchlist/groups/${id}`) }
 export function moveWatchlistGroup(id, direction) { return request.post(`/watchlist/groups/${id}/move`, { direction }) }

@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import redirect_stderr
+from contextvars import ContextVar
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from io import StringIO
@@ -46,6 +47,7 @@ MARKET_CACHE = {}
 MARKET_CACHE_LOCK = threading.Lock()
 KOSPI_REFRESH_LOCK = threading.Lock()
 KOSPI_REFRESHING = False
+FORCE_REFRESH = ContextVar("force_refresh", default=False)
 
 
 def cache_market_value(key, loader=None, ttl_seconds=0):
@@ -53,7 +55,7 @@ def cache_market_value(key, loader=None, ttl_seconds=0):
     now = time.time()
     with MARKET_CACHE_LOCK:
         cached = MARKET_CACHE.get(key)
-        if cached and cached["expires_at"] > now:
+        if not FORCE_REFRESH.get() and cached and cached["expires_at"] > now:
             return cached["value"]
     if loader is None:
         return None
@@ -306,10 +308,12 @@ def fetch_market_indices():
         _fetch_market_indices_live,
         market_quote_ttl()
     ) or [])
-    kospi = _get_cached_market_value("kospi-index-page")
+    kospi = (cache_market_value("kospi-index-page", fetch_kospi_index, market_quote_ttl())
+             if FORCE_REFRESH.get() else _get_cached_market_value("kospi-index-page"))
     if kospi:
         indices.append(kospi)
-    _schedule_kospi_refresh()
+    if not FORCE_REFRESH.get():
+        _schedule_kospi_refresh()
     return indices
 
 
@@ -523,7 +527,7 @@ def fetch_eastmoney_sector_rankings():
 def fetch_financial_news():
     """Aggregate important real-time financial headlines from AkShare sources."""
     with NEWS_CACHE_LOCK:
-        if NEWS_CACHE["payload"] and NEWS_CACHE["expires_at"] > time.time():
+        if not FORCE_REFRESH.get() and NEWS_CACHE["payload"] and NEWS_CACHE["expires_at"] > time.time():
             return NEWS_CACHE["payload"]
 
     groups = []
@@ -716,6 +720,7 @@ def fetch_fund123_intraday_chart(code):
         )
         estimates = (json.loads(estimate_body).get("list") or [])
         points = []
+        estimates.sort(key=lambda item: float(item.get("time") or 0))
         for item in estimates:
             rate = float(item.get("forecastGrowth") or 0)
             price = round(previous_close * (1 + rate), 4)
@@ -728,6 +733,7 @@ def fetch_fund123_intraday_chart(code):
             "code": code,
             "previous_close": previous_close,
             "points": points,
+            "updated_at": datetime.fromtimestamp(float(estimates[-1]["time"]) / 1000).strftime("%Y-%m-%d %H:%M:%S") if estimates and estimates[-1].get("time") else None,
             "source_label": "fund123 盘中预估"
         } if points else None
     except (urllib.error.URLError, ValueError, json.JSONDecodeError):
@@ -792,7 +798,7 @@ def select_fund123_previous_nav(candidates, now=None):
 def fetch_fund123_previous_nav(product_id, csrf, headers, opener):
     """Load OTC fund previous NAV once per day after the 09:30 market open."""
     cache_key = f"fund-previous-nav:{product_id}"
-    if is_before_market_open():
+    if is_before_market_open() and not FORCE_REFRESH.get():
         # Before the next session opens, reuse the last confirmed closing NAV.
         return cache_market_value(cache_key)
     return cache_market_value(
