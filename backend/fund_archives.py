@@ -5,7 +5,7 @@ import threading
 from datetime import datetime
 
 from database import DATABASE_ENGINE, get_connection
-from providers import CHINA_TIMEZONE, fetch_fund123_intraday_chart, market_now, ak
+from providers import CHINA_TIMEZONE, fetch_fund123_intraday_chart, fetch_tencent_intraday_chart, market_now, ak
 
 logger = logging.getLogger(__name__)
 _calendar_day = None
@@ -24,11 +24,17 @@ def is_trading_day(day):
     return _calendar_is_open
 
 
-def read_archive(code, trade_date):
+def archive_table(asset_type):
+    if asset_type not in ('fund', 'stock', 'etf'):
+        raise ValueError('Unsupported archive asset type')
+    return 'fund_estimate_archives' if asset_type == 'fund' else 'exchange_price_archives'
+
+
+def read_archive(code, trade_date, asset_type='fund'):
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT payload FROM fund_estimate_archives WHERE code = ? AND trade_date = ?",
+            f"SELECT payload FROM {archive_table(asset_type)} WHERE code = ? AND trade_date = ?",
             (code, trade_date)
         ).fetchone()
         return json.loads(row['payload']) if row else None
@@ -36,30 +42,36 @@ def read_archive(code, trade_date):
         conn.close()
 
 
-def archive_dates(code):
+def archive_dates(code, asset_type='fund'):
     conn = get_connection()
     try:
         return [row['trade_date'] for row in conn.execute(
-            "SELECT trade_date FROM fund_estimate_archives WHERE code = ? ORDER BY trade_date DESC",
+            f"SELECT trade_date FROM {archive_table(asset_type)} WHERE code = ? ORDER BY trade_date DESC",
             (code,)
         ).fetchall()]
     finally:
         conn.close()
 
 
-def save_archive(code, chart, day):
+def save_archive(code, chart, day, asset_type='fund'):
     points = (chart or {}).get('points') or []
     if not points:
         return False
-    stamps = [datetime.fromtimestamp(p['timestamp'] / 1000, CHINA_TIMEZONE) for p in points]
+    if asset_type == 'fund':
+        stamps = [datetime.fromtimestamp(p['timestamp'] / 1000, CHINA_TIMEZONE) for p in points]
+    else:
+        # Use the source's session date, never today's server date for stale quotes.
+        if chart.get('trade_date') != day:
+            return False
+        stamps = [datetime.strptime(day + ' ' + p['time'], '%Y-%m-%d %H:%M') for p in points]
     # Reject stale, mixed-date or incomplete pre-close responses; retry later.
     if any(s.strftime('%Y-%m-%d') != day for s in stamps) or max(stamps).strftime('%H:%M') < '15:00':
         return False
-    payload = dict(chart, code=code, trade_date=day, asset_type='fund', archived=True)
+    payload = dict(chart, code=code, trade_date=day, asset_type=asset_type, archived=True)
     conn = get_connection()
     try:
         sql = ('INSERT IGNORE' if DATABASE_ENGINE == 'mysql' else 'INSERT OR IGNORE')
-        conn.execute(sql + ' INTO fund_estimate_archives (code, trade_date, payload, saved_at) VALUES (?, ?, ?, ?)',
+        conn.execute(sql + f' INTO {archive_table(asset_type)} (code, trade_date, payload, saved_at) VALUES (?, ?, ?, ?)',
                      (code, day, json.dumps(payload, ensure_ascii=False), market_now().isoformat()))
         conn.commit()
         return True
@@ -76,16 +88,18 @@ def collect_close():
         return
     conn = get_connection()
     try:
-        codes = [r['code'] for r in conn.execute(
-            "SELECT code FROM holdings WHERE asset_type = 'fund' UNION SELECT code FROM watchlist_items WHERE asset_type = 'fund'"
-        ).fetchall()]
+        instruments = conn.execute(
+            "SELECT code, asset_type FROM holdings WHERE asset_type IN ('fund', 'stock', 'etf') UNION SELECT code, asset_type FROM watchlist_items WHERE asset_type IN ('fund', 'stock', 'etf')"
+        ).fetchall()
     finally:
         conn.close()
-    for code in codes:
+    for instrument in instruments:
+        code, asset_type = instrument['code'], instrument['asset_type']
         try:
-            if not read_archive(code, day):
-                if save_archive(code, fetch_fund123_intraday_chart(code), day):
-                    logger.info('Archived fund %s on %s', code, day)
+            if not read_archive(code, day, asset_type):
+                chart = fetch_fund123_intraday_chart(code) if asset_type == 'fund' else fetch_tencent_intraday_chart(code)
+                if save_archive(code, chart, day, asset_type):
+                    logger.info('Archived %s %s on %s', asset_type, code, day)
         except Exception:
             logger.exception('Failed to archive fund %s on %s; will retry', code, day)
 

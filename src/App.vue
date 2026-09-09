@@ -84,10 +84,10 @@
 
     <el-dialog :title="`${intradayChart.name || '标的'}${intradayChart.asset_type === 'fund' ? ' 基金详情' : ' 当日分时'}`" :visible.sync="intradayDialogVisible" width="760px" @opened="renderIntradayChart">
       <el-tabs v-if="intradayChart.asset_type === 'fund'" v-model="fundChartTab" class="fund-chart-tabs" @tab-click="handleFundChartTab"><el-tab-pane label="估值走势" name="intraday" /><el-tab-pane label="业绩走势" name="performance" /></el-tabs>
-      <div v-if="intradayChart.asset_type === 'fund' && fundChartTab === 'intraday'" class="chart-meta">
-        <span>估值走势日期</span>
+      <div v-if="['fund', 'stock', 'etf'].includes(intradayChart.asset_type) && fundChartTab === 'intraday'" class="chart-meta">
+        <span>{{ intradayChart.asset_type === 'fund' ? '估值走势日期' : '价格走势日期' }}</span>
         <el-select v-model="estimateArchiveDate" size="small" :disabled="intradayLoading" @change="loadEstimateArchive">
-          <el-option label="当日实时估值" value="" />
+          <el-option :label="intradayChart.asset_type === 'fund' ? '当日实时估值' : '当日分时价格'" value="" />
           <el-option v-for="day in estimateArchiveDates" :key="day" :label="day + ' 已归档'" :value="day" />
         </el-select>
         <span v-if="!estimateArchiveDates.length">收盘归档后可查看历史走势</span>
@@ -251,6 +251,7 @@ export default {
       indicesUpdatedAt: '',
       intradayDialogVisible: false,
       estimateArchiveDates: [],
+      archiveInstrumentCode: '',
       estimateArchiveDate: '',
       intradayLoading: false,
       intradayChart: { name: '', previous_close: null, points: [], source_label: '' },
@@ -421,14 +422,15 @@ export default {
   },
   methods: {
     async loadEstimateArchive() {
-      const code = this.fundPerformanceCode
+      const code = this.archiveInstrumentCode
+      const assetType = this.intradayChart.asset_type
       this.intradayLoading = true
       this.intradayChart = { ...this.intradayChart, points: [] }
       try {
         const { data } = this.estimateArchiveDate
-          ? await fetchEstimateArchive(code, this.estimateArchiveDate)
-          : await fetchIntradayChart(code, 'fund')
-        if (code === this.fundPerformanceCode) this.intradayChart = { ...data, asset_type: 'fund' }
+          ? await fetchEstimateArchive(code, this.estimateArchiveDate, assetType)
+          : await fetchIntradayChart(code, assetType)
+        if (code === this.archiveInstrumentCode) this.intradayChart = { ...data, asset_type: assetType }
       } catch (error) {
         this.$message.warning(error.response?.data?.error || '估值走势加载失败')
       } finally {
@@ -667,12 +669,13 @@ export default {
       }
     },
     async openIntradayChart(holding) {
+      this.archiveInstrumentCode = holding.code
       this.estimateArchiveDate = ''
       this.estimateArchiveDates = []
-      if (holding.asset_type === 'fund') {
-        fetchEstimateArchive(holding.code).then(({ data }) => {
-          if (this.fundPerformanceCode === holding.code) this.estimateArchiveDates = data.dates || []
-        }).catch(() => this.$message.warning('历史估值日期加载失败'))
+      if (['fund', 'stock', 'etf'].includes(holding.asset_type)) {
+        fetchEstimateArchive(holding.code, '', holding.asset_type).then(({ data }) => {
+          if (this.archiveInstrumentCode === holding.code) this.estimateArchiveDates = data.dates || []
+        }).catch(() => this.$message.warning('历史走势日期加载失败'))
       }
       this.intradayDialogVisible = true
       this.intradayLoading = true

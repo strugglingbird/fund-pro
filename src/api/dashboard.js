@@ -36,8 +36,8 @@ export function fetchIntradayChart(code, assetType) {
   })
 }
 
-export function fetchEstimateArchive(code, date = '') {
-  return request.get('/instruments/estimate-archive', { params: { code, date } })
+export function fetchEstimateArchive(code, date = '', assetType = 'fund') {
+  return request.get('/instruments/estimate-archive', { params: { code, date, asset_type: assetType } })
 }
 
 export function fetchFundHoldings(code) {

@@ -58,8 +58,8 @@
         -> providers.py -> 进程内缓存 -> 外部行情/基金/新闻
      -> fund_archives.py -> 数据库历史估值
 
-后端启动 -> 收盘归档线程 -> 交易日判断 -> 持仓/自选基金去重
-  -> fund123 当日分时 -> 日期及收盘点校验 -> 数据库
+后端启动 -> 收盘归档线程 -> 交易日判断 -> 持仓/自选标的去重
+  -> fund123 估值 / 腾讯场内分时 -> 日期及收盘点校验 -> 数据库
 ```
 
 `App.vue` 用 activeMenu 切换菜单，没有 Vue Router 或 Vuex。菜单、弹窗、图表和请求状态集中管理。后端每个 HTTP 请求在线程中执行，部分指数并发抓取；归档和韩国指数刷新使用进程内后台线程。
@@ -107,6 +107,14 @@ fund-pro/
 
 ## 数据流与计算
 
+### 场内价格走势归档
+
+股票和场内基金（stock/etf）现在也参与每个交易日 15:05 后的自动归档，覆盖持仓和自选。使用腾讯分时接口，保存源接口的交易日期、分时价格、昨日收盘价和来源；价格走势不是基金单位净值。与场外基金一样每轮完成后 5 分钟重试，必须为当天数据且包含 15:00 或之后的点，长期保留、成功后不覆盖。
+
+新增 `exchange_price_archives` 表，字段 code、trade_date、payload、saved_at，与场外归档相同，以 code+trade_date 为主键；SQLite 用 TEXT，MySQL 用 LONGTEXT 保存 JSON。原有 fund_estimate_archives 保留不变。历史接口 `/api/instruments/estimate-archive` 新增可选 asset_type=stock/etf/fund（默认 fund），返回对应类型的日期和曲线。股票/ETF 详情增加“价格走势日期”选择，加载沿用骨架屏。
+
+场内归档沿用内地交易日和北京时间 15:00 收盘口径，当前不支持海外股票交易时段；价格解析沿用现有沪深代码规则。停牌无有效分时、上游缺日期或缺收盘点时不生成记录。该归档是整段分时曲线，未新增逐日 OHLC K 线或场内基金官方净值接口。
+
 ### 看板与自选
 
 1. 页面调用 dashboard，服务从 holdings 读份额、成本和类型，逐个取得行情。
@@ -135,7 +143,7 @@ fund123 netValue 为最新公布净值，主链路校验 netValueDate 等于北�
 
 ### 收盘归档与回看
 
-后端启动后每轮判断北京时间是否达到 15:05，并用 AkShare 交易日历确认。SQL UNION 合并持仓和自选中 fund 类型代码，跳过当天已有记录，直接抓取 fund123 分时。
+后端启动后每轮判断北京时间是否达到 15:05，并用 AkShare 交易日历确认。SQL UNION 合并持仓和自选中 fund/stock/etf 类型代码，跳过当天已有记录；场外抓取 fund123 估值，场内抓取腾讯分时。
 
 所有点必须属于当天，最晚时间不早于 15:00，才保存 JSON。每轮结束等待 300 秒，失败下轮重试；异常写日志，空或不完整曲线跳过。午夜后只处理新日期，没有跨日补采。读取日期列表和选定日期的历史曲线只访问数据库。
 
@@ -227,7 +235,8 @@ forecastGrowth 是比例，乘 100 展示为百分数。分时估值以参考净
 | watchlist_groups | id, name, category, sort_order, created_at | name+category 唯一；category=exchange/fund |
 | watchlist_items | id, group_id, name, code, asset_type, created_at | group_id+code+asset_type 唯一；外键级联删除 |
 | app_settings | key, value | key 主键，当前存默认分组初始化标记 |
-| fund_estimate_archives | code, trade_date, payload, saved_at | code+trade_date 联合主键，独立于持仓/自选生命周期 |
+| fund_estimate_archives | code, trade_date, payload, saved_at | 场外估值；code+trade_date 联合主键，独立于持仓/自选生命周期 |
+| exchange_price_archives | code, trade_date, payload, saved_at | 股票/ETF 分时价格；code+trade_date 联合主键，独立长期保存 |
 
 SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL：id 为 BIGINT AUTO_INCREMENT，数量/成本 DOUBLE、文本 VARCHAR，created_at 主要为 TIMESTAMP，InnoDB/utf8mb4。归档 payload 为 SQLite TEXT/MySQL LONGTEXT，保存 JSON 字符串；trade_date 为 YYYY-MM-DD，saved_at 为北京时间 ISO 字符串。
 
@@ -275,8 +284,8 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 | GET /instruments/fund-holdings | code | 持仓股、披露信息 |
 | GET /instruments/fund-history | code, start_date, end_date | 历史净值 |
 | GET /instruments/fund-performance | code, interval | 基金及对比指数业绩 |
-| GET /instruments/estimate-archive | code | 日期倒序 dates |
-| GET /instruments/estimate-archive | code, date=YYYY-MM-DD | 归档曲线，不存在 404 |
+| GET /instruments/estimate-archive | code, asset_type 可选（默认 fund） | 日期倒序 dates；支持 stock/etf/fund |
+| GET /instruments/estimate-archive | code, date=YYYY-MM-DD, asset_type 可选 | 归档曲线，不存在 404 |
 
 业务类型为 stock/etf/fund，分时接口额外支持 index。当前没有登录、权限隔离、多用户表；响应允许 Access-Control-Allow-Origin: *。部分 GET 异常尚无统一 JSON 错误封装，公网访问控制需由部署环境补充。
 

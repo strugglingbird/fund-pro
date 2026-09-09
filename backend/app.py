@@ -60,9 +60,12 @@ class AppHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             code = query.get('code', [''])[0]
             day = query.get('date', [''])[0]
+            asset_type = query.get('asset_type', ['fund'])[0]
+            if asset_type not in ('fund', 'stock', 'etf'):
+                return self._send_json({'error': '不支持的归档类型'}, status=400)
             if not day:
-                return self._send_json({'dates': archive_dates(code)})
-            chart = read_archive(code, day)
+                return self._send_json({'dates': archive_dates(code, asset_type)})
+            chart = read_archive(code, day, asset_type)
             return self._send_json(chart or {'error': '该日期暂无已归档估值走势'}, status=200 if chart else 404)
         if parsed.path == "/api/instruments/lookup":
             query = parse_qs(parsed.query)

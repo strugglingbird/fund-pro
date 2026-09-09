@@ -628,6 +628,8 @@ def fetch_tencent_intraday_chart(code, is_index=False):
         payload = json.loads(http_get(f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}"))
         quote = (payload.get("data") or {}).get(symbol) or {}
         minute_data = quote.get("data") or {}
+        raw_date = re.sub(r'\D', '', str(minute_data.get('date') or ''))
+        trade_date = datetime.strptime(raw_date, '%Y%m%d').strftime('%Y-%m-%d') if len(raw_date) == 8 else None
         rows = minute_data.get("data") or []
         points = []
         for row in rows:
@@ -638,6 +640,7 @@ def fetch_tencent_intraday_chart(code, is_index=False):
         return {
             "name": details[1] if len(details) > 4 else normalized,
             "code": normalized,
+            "trade_date": trade_date,
             "previous_close": float(details[4]) if len(details) > 4 else None,
             "points": points,
             "source_label": "腾讯分时行情"
