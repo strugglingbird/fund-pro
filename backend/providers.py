@@ -101,7 +101,7 @@ def fund_valuation_ttl(now=None):
     if (now.hour, now.minute) >= (15, 0):
         # Keep checking for the official NAV publication after the close.
         return 300
-    return 30
+    return 60
 
 
 def http_get(url, headers=None, encoding="utf-8", opener=None):

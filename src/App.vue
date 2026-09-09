@@ -395,7 +395,7 @@ export default {
   mounted() {
     window.addEventListener('resize', this.resizeIntradayChart)
     this.newsRefreshTimer = window.setInterval(() => {
-      if (this.activeMenu === 'news') this.loadNews(true)
+      this.autoRefreshData()
     }, 60000)
   },
   beforeDestroy() {
@@ -409,6 +409,15 @@ export default {
     this.bootstrap()
   },
   methods: {
+    async autoRefreshData() {
+      if (document.hidden || this.refreshingAll) return
+      await Promise.all([
+        ...(!this.loading ? [this.refreshDashboard()] : []),
+        ...(!this.marketIndicesLoading ? [this.loadMarketIndices()] : []),
+        this.loadNews(false, true),
+        ...(this.activeMenu === 'watchlist' ? [this.loadWatchlist(false, true)] : [])
+      ])
+    },
     async bootstrap(force = false) {
       await Promise.all([this.refreshDashboard(force), this.loadMarketIndices(force), this.loadNews(force), ...(force ? [this.loadWatchlist(true)] : [])])
     },
@@ -506,8 +515,8 @@ export default {
       const target = this.watchGroups.find(group => group.id === storedId) || this.watchGroups[0]
       if (!this.selectedWatchGroup || this.selectedWatchGroup.category !== this.watchlistCategory) this.selectedWatchGroupId = target ? target.id : null
     },
-    async loadWatchlist(force = false) {
-      if (this.watchlistLoading || (!force && this.watchlistLoaded)) return
+    async loadWatchlist(force = false, reload = false) {
+      if (this.watchlistLoading || (!force && !reload && this.watchlistLoaded)) return
       this.watchlistLoading = true
       try {
         const { data } = await fetchWatchlist(force)
@@ -590,8 +599,8 @@ export default {
         this.$message.error(error.response?.data?.error || '加入自选失败')
       } finally { this.fundHoldingWatchSaving = false }
     },
-    async loadNews(force = false) {
-      if (this.newsLoading || (!force && this.newsFeed.groups.length)) return
+    async loadNews(force = false, reload = false) {
+      if (this.newsLoading || (!force && !reload && this.newsFeed.groups.length)) return
       this.newsLoading = true
       try {
         const { data } = await fetchNews(force)
