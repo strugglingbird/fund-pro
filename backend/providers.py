@@ -13,7 +13,7 @@ import urllib.request
 from contextlib import redirect_stderr
 from contextvars import ContextVar
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 
 try:
@@ -48,6 +48,12 @@ MARKET_CACHE_LOCK = threading.Lock()
 KOSPI_REFRESH_LOCK = threading.Lock()
 KOSPI_REFRESHING = False
 FORCE_REFRESH = ContextVar("force_refresh", default=False)
+CHINA_TIMEZONE = timezone(timedelta(hours=8))
+
+
+def market_now():
+    """Return naive China Standard Time so market rules are host-timezone independent."""
+    return datetime.now(CHINA_TIMEZONE).replace(tzinfo=None)
 
 
 def cache_market_value(key, loader=None, ttl_seconds=0):
@@ -67,7 +73,7 @@ def cache_market_value(key, loader=None, ttl_seconds=0):
 
 
 def seconds_until_next_market_open(now=None):
-    now = now or datetime.now()
+    now = now or market_now()
     target = now.replace(hour=9, minute=30, second=0, microsecond=0)
     if target <= now:
         target += timedelta(days=1)
@@ -77,19 +83,19 @@ def seconds_until_next_market_open(now=None):
 
 
 def is_before_market_open(now=None):
-    now = now or datetime.now()
+    now = now or market_now()
     return (now.hour, now.minute) < (9, 30)
 
 
 def market_quote_ttl(now=None):
-    now = now or datetime.now()
+    now = now or market_now()
     if is_before_market_open(now) or (now.hour, now.minute) >= (15, 0):
         return seconds_until_next_market_open(now)
     return 15
 
 
 def fund_valuation_ttl(now=None):
-    now = now or datetime.now()
+    now = now or market_now()
     if is_before_market_open(now):
         return seconds_until_next_market_open(now)
     if (now.hour, now.minute) >= (15, 0):
@@ -195,7 +201,7 @@ def _fetch_market_breadth_live():
         live_breadth = _build_market_breadth_from_spot(frame)
         if live_breadth:
             live_breadth.update({
-                "data_date": datetime.now().strftime("%Y-%m-%d"),
+                "data_date": market_now().strftime("%Y-%m-%d"),
                 "is_realtime": True,
                 "source_label": "AkShare 全 A 股实时行情"
             })
@@ -224,7 +230,7 @@ def _build_market_breadth_from_spot(frame):
 
 
 def _previous_market_date(now=None):
-    now = now or datetime.now()
+    now = now or market_now()
     candidate = now.date()
     if now.weekday() >= 5 or (now.hour, now.minute) < (9, 30):
         candidate -= timedelta(days=1)
@@ -558,7 +564,7 @@ def fetch_financial_news():
         "groups": groups,
         "total_count": len(items),
         "source_label": "AkShare 财经快讯聚合",
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
     }
     with NEWS_CACHE_LOCK:
         NEWS_CACHE["payload"] = payload
@@ -711,8 +717,8 @@ def fetch_fund123_intraday_chart(code):
         if not history_nav and not nav_match:
             return None
         previous_close = round(history_nav or float(nav_match.group("nav")), 4)
-        today = datetime.now().strftime("%Y-%m-%d")
-        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        today = market_now().strftime("%Y-%m-%d")
+        tomorrow = (market_now() + timedelta(days=1)).strftime("%Y-%m-%d")
         estimate_body = http_post_json(
             f"https://www.fund123.cn/api/fund/queryFundEstimateIntraday?_csrf={csrf}",
             {"startTime": today, "endTime": tomorrow, "limit": 200, "productId": product_id, "format": True, "source": "WEALTHBFFWEB"},
@@ -742,7 +748,7 @@ def fetch_fund123_intraday_chart(code):
 
 def fetch_fund123_history_navs(product_id, csrf, headers, opener):
     """Fetch the latest fund123 NAV records as ``(YYYYMMDD, nav)`` pairs."""
-    now = datetime.now()
+    now = market_now()
     today = now.date()
     payload = {
         "productId": product_id,
@@ -782,7 +788,7 @@ def fetch_fund123_history_navs(product_id, csrf, headers, opener):
 
 def select_fund123_previous_nav(candidates, now=None):
     """Choose a stable reference NAV without advancing it at midnight."""
-    now = now or datetime.now()
+    now = now or market_now()
     today = now.date()
     # Before 09:30, retain the value shown during the prior calendar day.
     reference_date = today - timedelta(days=2 if (now.hour, now.minute) < (9, 30) else 1)
@@ -812,10 +818,31 @@ def fetch_fund123_previous_nav(product_id, csrf, headers, opener):
 
 def select_fund123_today_nav(candidates, now=None):
     """Return today's published NAV only; no estimate is treated as a quote."""
-    now = now or datetime.now()
+    now = now or market_now()
     today = now.strftime("%Y%m%d")
     today_values = [item for item in candidates if item[0] == today]
     return max(today_values, key=lambda item: item[0])[1] if today_values else None
+
+
+def parse_fund123_nav_date(material, now=None):
+    """Normalize fund123's netValueDate (usually MM-DD) to YYYYMMDD."""
+    match = re.search(r'"netValueDate"\s*:\s*"(?P<date>[^\"]+)"', material or "")
+    if not match:
+        return None
+    now = now or market_now()
+    digits = re.sub(r"\D", "", match.group("date"))
+    if len(digits) >= 8:
+        return digits[:8]
+    if len(digits) != 4:
+        return None
+    candidate = f"{now.year}{digits}"
+    try:
+        candidate_date = datetime.strptime(candidate, "%Y%m%d").date()
+    except ValueError:
+        return None
+    if candidate_date > now.date() + timedelta(days=7):
+        candidate = f"{now.year - 1}{digits}"
+    return candidate
 
 
 def fetch_intraday_chart(asset_type, code):
@@ -842,13 +869,10 @@ def fetch_fund_valuation(code):
     value = _fetch_fund_valuation_live(normalized)
     if value is None:
         return None
-    now = datetime.now()
+    now = market_now()
     current_price = value.get("current_price")
     previous_close = value.get("previous_close")
-    nav_is_published = (
-        current_price is not None and previous_close is not None
-        and abs(float(current_price) - float(previous_close)) > 0.000001
-    )
+    nav_is_published = current_price is not None
     ttl = seconds_until_next_market_open(now) if (now.hour, now.minute) >= (15, 0) and nav_is_published else fund_valuation_ttl(now)
     return cache_market_value(cache_key, lambda: value, ttl)
 
@@ -998,8 +1022,8 @@ def fetch_fund123_history_nav_list(code, start_date=None, end_date=None):
         return None
     start = re.sub(r"\D", "", str(start_date or ""))[:8]
     end = re.sub(r"\D", "", str(end_date or ""))[:8]
-    today = datetime.now().strftime("%Y%m%d")
-    start = start if len(start) == 8 else (datetime.now() - timedelta(days=92)).strftime("%Y%m%d")
+    today = market_now().strftime("%Y%m%d")
+    start = start if len(start) == 8 else (market_now() - timedelta(days=92)).strftime("%Y%m%d")
     end = end if len(end) == 8 else today
     if start > end:
         start, end = end, start
@@ -1119,7 +1143,7 @@ def _fetch_fund123_history_nav_list_live(code, start_date, end_date):
         "name": fund_info.get("fundName") or code,
         "items": items,
         "source_label": "fund123 历史净值",
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "updated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
 
@@ -1194,7 +1218,7 @@ def _fetch_fund123_holdings_live(code):
         "report_date": payload.get("reportDate") if isinstance(payload, dict) else None,
         "stock_position": stock_position,
         "source_label": "fund123 基金持仓",
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "updated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
 
@@ -1288,19 +1312,23 @@ def fetch_fund123_intraday_valuation(code):
             opener=opener
         )
         nav_match = re.search(r'"netValue"\s*:\s*"(?P<nav>\d+(?:\.\d+)?)"', material)
+        nav_date = parse_fund123_nav_date(material)
         if not history_nav and not nav_match:
             return None
         previous_close = round(history_nav or float(nav_match.group("nav")), 4)
         # fund123's matiaria endpoint publishes the latest confirmed NAV in
-        # netValue. Keep it separate from the intraday forecast below.
-        current_price = round(float(nav_match.group("nav")), 4) if nav_match else None
+        # netValue. It is an actual quote only when its publication date is today.
+        current_price = (
+            round(float(nav_match.group("nav")), 4)
+            if nav_match and nav_date == market_now().strftime("%Y%m%d") else None
+        )
         daily_change_rate = (
             (current_price - previous_close) / previous_close * 100
             if current_price is not None and previous_close else None
         )
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        today = market_now().strftime("%Y-%m-%d")
+        tomorrow = (market_now() + timedelta(days=1)).strftime("%Y-%m-%d")
         estimate_body = http_post_json(
             f"https://www.fund123.cn/api/fund/queryFundEstimateIntraday?_csrf={csrf}",
             {
@@ -1327,7 +1355,9 @@ def fetch_fund123_intraday_valuation(code):
             "change_rate": daily_change_rate,
             "daily_change_rate": daily_change_rate,
             "estimated_change_rate": estimated_change_rate,
-            "time": datetime.fromtimestamp(float(latest.get("time") or 0) / 1000).strftime("%Y-%m-%d %H:%M"),
+            "time": datetime.fromtimestamp(
+                float(latest.get("time") or 0) / 1000, CHINA_TIMEZONE
+            ).strftime("%Y-%m-%d %H:%M"),
             "source_label": "fund123 盘中预估"
         }
     except (urllib.error.URLError, ValueError, json.JSONDecodeError):
@@ -1453,6 +1483,6 @@ def extract_fund_value_from_text(body, source_label):
         "change_rate": float(rate_match.group("rate")) if rate_match else 0,
         "daily_change_rate": None,
         "estimated_change_rate": float(rate_match.group("rate")) if rate_match else 0,
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "time": market_now().strftime("%Y-%m-%d %H:%M"),
         "source_label": source_label
     }

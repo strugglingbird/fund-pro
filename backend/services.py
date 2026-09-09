@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from database import get_connection, init_db
-from providers import fetch_akshare_watch_quote, fetch_financial_news, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings
+from providers import fetch_akshare_watch_quote, fetch_financial_news, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, market_now
 
 
 DEMO_HOLDINGS = [
@@ -137,7 +137,7 @@ class DashboardService:
         for item in items:
             market = fetch_fund_valuation(item["code"]) if item["asset_type"] == "fund" else fetch_akshare_watch_quote(item["code"], item["asset_type"])
             item.update(market or {"current_price": None, "previous_close": None, "daily_change_rate": None, "estimated_price": None, "estimated_change_rate": None, "source_label": "暂无行情"})
-        return {"groups": groups, "items": items, "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        return {"groups": groups, "items": items, "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")}
 
     def create_watchlist_group(self, payload):
         name, category = str(payload.get("name", "")).strip(), str(payload.get("category", "")).strip()
@@ -298,11 +298,11 @@ class DashboardService:
             "news": self._empty_news(),
             "market_breadth": market_breadth or {"available": False, "rising": 0, "falling": 0, "flat": 0, "limit_up": 0, "limit_down": 0, "total": 0, "data_date": None, "is_realtime": False, "source_label": "AkShare 全 A 股实时行情"},
             "sectors": sectors,
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
     def get_market_indices(self):
-        return {"items": fetch_market_indices(), "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        return {"items": fetch_market_indices(), "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")}
 
     def get_news(self):
         return fetch_financial_news() or self._empty_news()
@@ -317,7 +317,7 @@ class DashboardService:
             "groups": [],
             "total_count": 0,
             "source_label": "AkShare 财经快讯",
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
     def _load_market_data(self, holding):
