@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from services import DashboardService
+from fund_archives import archive_dates, read_archive, start_archive_worker
 from providers import FORCE_REFRESH
 from providers import fetch_fund123_history_nav_list, fetch_fund123_holdings, fetch_fund123_performance_curve, lookup_instrument
 
@@ -55,6 +56,14 @@ class AppHandler(BaseHTTPRequestHandler):
             return self._send_json(service.get_news())
         if parsed.path == "/api/health":
             return self._send_json({"status": "ok"})
+        if parsed.path == "/api/instruments/estimate-archive":
+            query = parse_qs(parsed.query)
+            code = query.get('code', [''])[0]
+            day = query.get('date', [''])[0]
+            if not day:
+                return self._send_json({'dates': archive_dates(code)})
+            chart = read_archive(code, day)
+            return self._send_json(chart or {'error': '该日期暂无已归档估值走势'}, status=200 if chart else 404)
         if parsed.path == "/api/instruments/lookup":
             query = parse_qs(parsed.query)
             code = query.get("code", [""])[0]
@@ -163,7 +172,12 @@ def run():
     port = int(os.environ.get("PORT", "5000"))
     httpd = ThreadingHTTPServer((host, port), AppHandler)
     print(f"Backend listening on http://{host}:{port}")
-    httpd.serve_forever()
+    archive_stop = start_archive_worker()
+    try:
+        httpd.serve_forever()
+    finally:
+        archive_stop.set()
+        httpd.server_close()
 
 
 if __name__ == "__main__":

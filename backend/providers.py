@@ -731,7 +731,9 @@ def fetch_fund123_intraday_chart(code):
             rate = float(item.get("forecastGrowth") or 0)
             price = round(previous_close * (1 + rate), 4)
             points.append({
-                "time": datetime.fromtimestamp(float(item.get("time") or 0) / 1000).strftime("%H:%M"),
+                "time": datetime.fromtimestamp(float(item.get("time") or 0) / 1000, CHINA_TIMEZONE).strftime("%H:%M"),
+                "timestamp": float(item.get("time") or 0),
+                "forecast_growth": rate,
                 "price": price
             })
         return {
@@ -739,7 +741,7 @@ def fetch_fund123_intraday_chart(code):
             "code": code,
             "previous_close": previous_close,
             "points": points,
-            "updated_at": datetime.fromtimestamp(float(estimates[-1]["time"]) / 1000).strftime("%Y-%m-%d %H:%M:%S") if estimates and estimates[-1].get("time") else None,
+            "updated_at": datetime.fromtimestamp(float(estimates[-1]["time"]) / 1000, CHINA_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S") if estimates and estimates[-1].get("time") else None,
             "source_label": "fund123 盘中预估"
         } if points else None
     except (urllib.error.URLError, ValueError, json.JSONDecodeError):

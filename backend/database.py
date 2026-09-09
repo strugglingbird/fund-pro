@@ -13,6 +13,13 @@ DATABASE_ENGINE = os.environ.get("DATABASE_ENGINE", "sqlite").lower()
 
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS fund_estimate_archives (
+    code VARCHAR(32) NOT NULL,
+    trade_date VARCHAR(10) NOT NULL,
+    payload TEXT NOT NULL,
+    saved_at VARCHAR(32) NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
 CREATE TABLE IF NOT EXISTS holdings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -48,6 +55,13 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 
 MYSQL_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS fund_estimate_archives (
+    code VARCHAR(32) NOT NULL,
+    trade_date VARCHAR(10) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    saved_at VARCHAR(32) NOT NULL,
+    PRIMARY KEY (code, trade_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS holdings (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,

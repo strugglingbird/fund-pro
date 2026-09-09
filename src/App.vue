@@ -84,7 +84,15 @@
 
     <el-dialog :title="`${intradayChart.name || '标的'}${intradayChart.asset_type === 'fund' ? ' 基金详情' : ' 当日分时'}`" :visible.sync="intradayDialogVisible" width="760px" @opened="renderIntradayChart">
       <el-tabs v-if="intradayChart.asset_type === 'fund'" v-model="fundChartTab" class="fund-chart-tabs" @tab-click="handleFundChartTab"><el-tab-pane label="估值走势" name="intraday" /><el-tab-pane label="业绩走势" name="performance" /></el-tabs>
-      <div v-if="fundChartTab === 'intraday' && intradayLoading" class="chart-skeleton" aria-label="正在加载当日分时走势"><i /><i /><i /><i /><i /></div>
+      <div v-if="intradayChart.asset_type === 'fund' && fundChartTab === 'intraday'" class="chart-meta">
+        <span>估值走势日期</span>
+        <el-select v-model="estimateArchiveDate" size="small" :disabled="intradayLoading" @change="loadEstimateArchive">
+          <el-option label="当日实时估值" value="" />
+          <el-option v-for="day in estimateArchiveDates" :key="day" :label="day + ' 已归档'" :value="day" />
+        </el-select>
+        <span v-if="!estimateArchiveDates.length">收盘归档后可查看历史走势</span>
+      </div>
+      <div v-if="fundChartTab === 'intraday' && intradayLoading" class="chart-skeleton" aria-label="正在加载估值走势"><i /><i /><i /><i /><i /></div>
       <template v-else-if="fundChartTab === 'intraday'">
         <template v-if="intradayChart.points.length">
           <div class="chart-meta"><span>昨收：{{ formatIntradayPrice(intradayChart.previous_close, intradayChart.asset_type) }}</span><span>最新：{{ formatIntradayPrice(intradayChart.points[intradayChart.points.length - 1].price, intradayChart.asset_type) }}</span><span>{{ intradayChart.source_label }}</span></div>
@@ -157,6 +165,7 @@
 </template>
 
 <script>
+import { fetchEstimateArchive } from './api/dashboard'
 import * as echarts from 'echarts'
 import { deleteHolding, fetchDashboard, fetchFundHistory, fetchFundHoldings, fetchFundPerformance, fetchIntradayChart, fetchMarketIndices, fetchNews, fetchWatchlist, lookupInstrument, moveWatchlistGroup, removeWatchlistGroup, removeWatchlistItem, saveHolding, saveWatchlistGroup, saveWatchlistItem, seedDemo, updateHolding } from './api/dashboard'
 
@@ -241,6 +250,8 @@ export default {
       fundHoldingWatchGroupId: null,
       indicesUpdatedAt: '',
       intradayDialogVisible: false,
+      estimateArchiveDates: [],
+      estimateArchiveDate: '',
       intradayLoading: false,
       intradayChart: { name: '', previous_close: null, points: [], source_label: '' },
       fundHoldingsLoading: false,
@@ -409,6 +420,22 @@ export default {
     this.bootstrap()
   },
   methods: {
+    async loadEstimateArchive() {
+      const code = this.fundPerformanceCode
+      this.intradayLoading = true
+      this.intradayChart = { ...this.intradayChart, points: [] }
+      try {
+        const { data } = this.estimateArchiveDate
+          ? await fetchEstimateArchive(code, this.estimateArchiveDate)
+          : await fetchIntradayChart(code, 'fund')
+        if (code === this.fundPerformanceCode) this.intradayChart = { ...data, asset_type: 'fund' }
+      } catch (error) {
+        this.$message.warning(error.response?.data?.error || '估值走势加载失败')
+      } finally {
+        this.intradayLoading = false
+        this.$nextTick(() => this.renderIntradayChart())
+      }
+    },
     async autoRefreshData() {
       if (document.hidden || this.refreshingAll) return
       await Promise.all([
@@ -640,6 +667,13 @@ export default {
       }
     },
     async openIntradayChart(holding) {
+      this.estimateArchiveDate = ''
+      this.estimateArchiveDates = []
+      if (holding.asset_type === 'fund') {
+        fetchEstimateArchive(holding.code).then(({ data }) => {
+          if (this.fundPerformanceCode === holding.code) this.estimateArchiveDates = data.dates || []
+        }).catch(() => this.$message.warning('历史估值日期加载失败'))
+      }
       this.intradayDialogVisible = true
       this.intradayLoading = true
       this.intradayChart = { name: holding.name, asset_type: holding.asset_type, previous_close: holding.previous_close, points: [], source_label: '' }
