@@ -431,37 +431,6 @@ def fetch_sector_rankings():
     )
 
 
-def fetch_sector_fund_flow_snapshot():
-    """Return the latest industry net-inflow snapshot in billions of yuan."""
-    return cache_market_value(
-        "sector-fund-flow-snapshot",
-        _fetch_sector_fund_flow_snapshot_live,
-        25
-    )
-
-
-def _fetch_sector_fund_flow_snapshot_live():
-    if ak is None:
-        return []
-    try:
-        with redirect_stderr(StringIO()):
-            frame = ak.stock_fund_flow_industry(symbol="即时")
-        columns = list(frame.columns)
-        name_key = next((column for column in columns if "行业" in str(column)), None)
-        net_key = next((column for column in columns if str(column) == "净额"), None)
-        if not name_key or not net_key:
-            return []
-        rows = []
-        for row in frame.to_dict(orient="records"):
-            name = str(row.get(name_key) or "").strip()
-            net_inflow = _to_float(row.get(net_key))
-            if name and net_inflow is not None:
-                rows.append({"name": name, "net_inflow": net_inflow})
-        return rows
-    except Exception:
-        return []
-
-
 def _fetch_sector_rankings_live():
     """Load live industry-sector gainers and losers through AkShare."""
     if ak is not None:

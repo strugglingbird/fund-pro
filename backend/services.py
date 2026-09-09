@@ -1,10 +1,7 @@
-import threading
-import time
-import math
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from database import get_connection, init_db
-from providers import fetch_akshare_watch_quote, fetch_financial_news, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_fund_flow_snapshot, fetch_sector_rankings
+from providers import fetch_akshare_watch_quote, fetch_financial_news, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings
 
 
 DEMO_HOLDINGS = [
@@ -42,98 +39,9 @@ FALLBACK_SECTORS = {
 }
 
 
-_SECTOR_FLOW_COLLECTOR_LOCK = threading.Lock()
-_SECTOR_FLOW_COLLECTOR_STARTED = False
-
-
-def _is_sector_flow_collection_window(now):
-    return now.weekday() < 5 and (9, 30) <= (now.hour, now.minute) < (15, 0)
-
-
-def _capture_sector_fund_flow_snapshot():
-    """Persist one real-time industry fund-flow snapshot and prune old samples."""
-    snapshot = fetch_sector_fund_flow_snapshot()
-    if not snapshot:
-        return False
-    now = datetime.now()
-    captured_at = now.strftime("%Y-%m-%d %H:%M:%S")
-    trade_date = now.strftime("%Y-%m-%d")
-    cutoff = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-    conn = get_connection()
-    try:
-        conn.executemany(
-            """
-            INSERT OR IGNORE INTO sector_fund_flow_snapshots
-                (captured_at, trade_date, sector_name, net_inflow)
-            VALUES (?, ?, ?, ?)
-            """,
-            [(captured_at, trade_date, item["name"], item["net_inflow"]) for item in snapshot]
-        )
-        conn.execute("DELETE FROM sector_fund_flow_snapshots WHERE captured_at < ?", (cutoff,))
-        conn.commit()
-        return True
-    finally:
-        conn.close()
-
-
-def _sector_fund_flow_collector_loop():
-    while True:
-        now = datetime.now()
-        if _is_sector_flow_collection_window(now):
-            try:
-                _capture_sector_fund_flow_snapshot()
-            except Exception:
-                pass
-            # Align following samples to 30-second boundaries.
-            time.sleep(max(3, 30 - datetime.now().second % 30))
-        else:
-            time.sleep(60)
-
-
-def _start_sector_fund_flow_collector():
-    global _SECTOR_FLOW_COLLECTOR_STARTED
-    with _SECTOR_FLOW_COLLECTOR_LOCK:
-        if _SECTOR_FLOW_COLLECTOR_STARTED:
-            return
-        thread = threading.Thread(target=_sector_fund_flow_collector_loop, name="sector-fund-flow-collector", daemon=True)
-        thread.start()
-        _SECTOR_FLOW_COLLECTOR_STARTED = True
-
-
-def _build_sector_fund_flow_demo():
-    """Provide a clearly labelled preview until the first trading-day samples exist."""
-    names = ["证券", "电力设备", "银行", "白酒", "创新药", "机器人", "有色金属", "AI 芯片", "通信设备", "半导体", "PCB", "国产芯片"]
-    targets = [186.4, 28.6, 16.4, 7.8, -11.5, -20.7, -31.8, -43.2, -65.4, -92.6, -118.3, -338.6]
-    times = [f"{hour:02d}:{minute:02d}" for hour, start, end in [(9, 30, 60), (10, 0, 60), (11, 0, 31), (13, 0, 60), (14, 0, 60), (15, 0, 1)] for minute in range(start, end)]
-    times = [f"{value}:{second:02d}" for value in times for second in (0, 30) if value != "15:00" or second == 0]
-    times = list(dict.fromkeys(times))
-    series = []
-    for index, (name, target) in enumerate(zip(names, targets)):
-        values = []
-        for point, _ in enumerate(times):
-            progress = point / max(len(times) - 1, 1)
-            if name == "机器人":
-                if progress < 0.48:
-                    value = -145 * math.sin(progress / 0.48 * math.pi / 2)
-                else:
-                    afternoon = (progress - 0.48) / 0.52
-                    value = -145 + 425 * (1 - (1 - afternoon) ** 1.7)
-            elif name == "AI 芯片":
-                value = target * progress + math.sin(progress * math.pi * 5) * 62
-            else:
-                wave = math.sin(progress * math.pi * (2 + index % 3) + index) * (3.5 + index * 0.45)
-                value = target * progress + wave * (1 - progress * 0.35)
-            values.append(round(value, 2))
-        values[0] = 0
-        series.append({"name": name, "data": values})
-    today = datetime.now().strftime("%Y-%m-%d")
-    return {"trade_date": today, "start_at": times[0], "updated_at": f"{today} {times[-1]}:00", "times": times, "series": series, "source_label": "模拟演示数据", "unit": "亿元", "is_demo": True}
-
-
 class DashboardService:
     def __init__(self):
         init_db()
-        _start_sector_fund_flow_collector()
 
     def list_holdings(self):
         conn = get_connection()
@@ -395,59 +303,6 @@ class DashboardService:
 
     def get_market_indices(self):
         return {"items": fetch_market_indices(), "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-    def get_sector_fund_flow(self):
-        """Return the latest trading day's sampled sector rotation series."""
-        conn = get_connection()
-        try:
-            latest_date_row = conn.execute(
-                "SELECT MAX(trade_date) AS trade_date FROM sector_fund_flow_snapshots"
-            ).fetchone()
-            trade_date = latest_date_row["trade_date"] if latest_date_row else None
-            if not trade_date:
-                return _build_sector_fund_flow_demo()
-            latest_at_row = conn.execute(
-                "SELECT MAX(captured_at) AS captured_at FROM sector_fund_flow_snapshots WHERE trade_date = ?",
-                (trade_date,)
-            ).fetchone()
-            latest_at = latest_at_row["captured_at"]
-            sectors = conn.execute(
-                """
-                SELECT sector_name FROM sector_fund_flow_snapshots
-                WHERE captured_at = ?
-                ORDER BY ABS(net_inflow) DESC
-                LIMIT 12
-                """,
-                (latest_at,)
-            ).fetchall()
-            names = [row["sector_name"] for row in sectors]
-            if not names:
-                return {"trade_date": trade_date, "start_at": None, "updated_at": latest_at, "series": [], "source_label": "AkShare 同花顺行业资金流", "unit": "亿元"}
-            placeholders = ",".join("?" for _ in names)
-            rows = conn.execute(
-                f"""
-                SELECT captured_at, sector_name, net_inflow
-                FROM sector_fund_flow_snapshots
-                WHERE trade_date = ? AND sector_name IN ({placeholders})
-                ORDER BY captured_at, sector_name
-                """,
-                [trade_date, *names]
-            ).fetchall()
-            times = sorted({row["captured_at"][-8:] for row in rows})
-            values = {name: {} for name in names}
-            for row in rows:
-                values[row["sector_name"]][row["captured_at"][-8:]] = row["net_inflow"]
-            return {
-                "trade_date": trade_date,
-                "start_at": times[0] if times else None,
-                "updated_at": latest_at,
-                "times": times,
-                "series": [{"name": name, "data": [values[name].get(time) for time in times]} for name in names],
-                "source_label": "AkShare 同花顺行业资金流",
-                "unit": "亿元"
-            }
-        finally:
-            conn.close()
 
     def get_news(self):
         return fetch_financial_news() or self._empty_news()

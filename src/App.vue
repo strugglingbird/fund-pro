@@ -29,8 +29,7 @@
         </el-col>
       </el-row>
       <el-row :gutter="18" class="home-market-row">
-        <el-col :xs="24" :lg="8"><el-card shadow="never" class="panel-card home-temperature-card"><div slot="header" class="panel-header"><span>市场温度</span><span class="panel-tip">{{ homeMarketTemperature.breadth.data_date ? `${homeMarketTemperature.breadth.data_date} ${homeMarketTemperature.breadth.is_realtime ? '实时' : '收盘'}` : '内地核心指数' }}</span></div><template v-if="isMarketInitialLoading"><div class="temperature-skeleton"><i /><i /><i /></div></template><template v-else><div class="temperature-main"><div><span class="temperature-label">市场情绪</span><strong :class="homeMarketTemperature.className">{{ homeMarketTemperature.label }}</strong></div><div :class="homeMarketTemperature.className" class="temperature-rate">{{ formatPercent(homeMarketTemperature.averageChange) }}</div></div><div class="temperature-metrics"><span>主要指数 {{ homeMarketTemperature.rising }} 涨 {{ homeMarketTemperature.falling }} 跌</span><span v-if="homeMarketTemperature.breadth.available">全市 {{ homeMarketTemperature.breadth.rising }} 涨 {{ homeMarketTemperature.breadth.falling }} 跌</span><span v-else>全市涨跌 暂无有效数据</span><span v-if="homeMarketTemperature.breadth.available">涨停 / 跌停 {{ homeMarketTemperature.breadth.limit_up }} : {{ homeMarketTemperature.breadth.limit_down }}</span><span v-else>涨停 / 跌停 暂无有效数据</span><span>行业领涨 {{ homeMarketTemperature.leader.name || '--' }} {{ formatPercent(homeMarketTemperature.leader.change_rate) }}</span><span>行业领跌 {{ homeMarketTemperature.laggard.name || '--' }} {{ formatPercent(homeMarketTemperature.laggard.change_rate) }}</span></div></template></el-card></el-col>
-        <el-col :xs="24" :lg="16"><el-card shadow="never" class="panel-card home-flow-card"><div slot="header" class="panel-header"><span>资金轮动</span><div class="panel-actions"><span class="panel-tip">{{ sectorFundFlow.source_label || '行业资金流' }} · {{ sectorFundFlow.updated_at || '--' }}</span><el-button type="text" @click="openSectorFundFlow">查看回放</el-button></div></div><div v-if="sectorFundFlowLoading && !sectorFundFlow.series.length" class="chart-skeleton home-flow-skeleton" aria-label="正在加载资金轮动缩略图"><i /><i /><i /><i /><i /></div><template v-else-if="sectorFundFlow.series.length"><div class="home-flow-highlights"><span class="positive">流入居前：{{ homeFlowHighlights.inflow.name }} {{ homeFlowHighlights.inflow.value.toFixed(1) }} 亿</span><span class="negative">流出居前：{{ homeFlowHighlights.outflow.name }} {{ homeFlowHighlights.outflow.value.toFixed(1) }} 亿</span></div><div ref="homeSectorFundFlowChart" class="home-sector-flow-chart" role="img" aria-label="板块资金轮动缩略图" @click="openSectorFundFlow" /></template><div v-else class="empty-state home-flow-empty">暂无资金轮动数据。</div></el-card></el-col>
+        <el-col :xs="24"><el-card shadow="never" class="panel-card home-temperature-card"><div slot="header" class="panel-header"><span>市场温度</span><span class="panel-tip">{{ homeMarketTemperature.breadth.data_date ? `${homeMarketTemperature.breadth.data_date} ${homeMarketTemperature.breadth.is_realtime ? '实时' : '收盘'}` : '内地核心指数' }}</span></div><template v-if="isMarketInitialLoading"><div class="temperature-skeleton"><i /><i /><i /></div></template><template v-else><div class="temperature-main"><div><span class="temperature-label">市场情绪</span><strong :class="homeMarketTemperature.className">{{ homeMarketTemperature.label }}</strong></div><div :class="homeMarketTemperature.className" class="temperature-rate">{{ formatPercent(homeMarketTemperature.averageChange) }}</div></div><div class="temperature-metrics"><span>主要指数 {{ homeMarketTemperature.rising }} 涨 {{ homeMarketTemperature.falling }} 跌</span><span v-if="homeMarketTemperature.breadth.available">全市 {{ homeMarketTemperature.breadth.rising }} 涨 {{ homeMarketTemperature.breadth.falling }} 跌</span><span v-else>全市涨跌 暂无有效数据</span><span v-if="homeMarketTemperature.breadth.available">涨停 / 跌停 {{ homeMarketTemperature.breadth.limit_up }} : {{ homeMarketTemperature.breadth.limit_down }}</span><span v-else>涨停 / 跌停 暂无有效数据</span><span>行业领涨 {{ homeMarketTemperature.leader.name || '--' }} {{ formatPercent(homeMarketTemperature.leader.change_rate) }}</span><span>行业领跌 {{ homeMarketTemperature.laggard.name || '--' }} {{ formatPercent(homeMarketTemperature.laggard.change_rate) }}</span></div></template></el-card></el-col>
       </el-row>
       <el-row :gutter="18" class="home-content-row">
         <el-col :xs="24" :lg="14">
@@ -74,7 +73,7 @@
       <div class="page-heading"><div><h2>市场指数</h2><p>主要市场指数与板块强弱复盘。</p></div><span class="panel-tip">{{ indicesUpdatedAt || '--' }} 更新</span></div>
       <el-tabs v-model="activeMarketTab" class="market-index-tabs" @tab-click="loadMarketIndices"><el-tab-pane label="内地" name="cn" /><el-tab-pane label="港股" name="hk" /><el-tab-pane label="美股" name="us" /><el-tab-pane label="韩国" name="kr" /></el-tabs><el-row v-if="isMarketInitialLoading" :gutter="18" class="stats-row market-index-row"><el-col v-for="card in 4" :key="card" :xs="6" :sm="12" :lg="6"><div class="index-card index-skeleton"><i /><i /><i /></div></el-col></el-row><el-row v-else :gutter="18" class="stats-row market-index-row"><el-col :xs="6" :sm="12" :lg="6" v-for="item in visibleMarketIndices" :key="item.code"><div class="index-card index-card--clickable" role="button" tabindex="0" @click="openIndexIntradayChart(item)" @keyup.enter="openIndexIntradayChart(item)"><div class="stat-label index-label"><span class="index-name">{{ item.name }}</span><span class="index-code"> · {{ item.code }}</span></div><div class="index-value">{{ Number(item.current_price).toFixed(2) }}</div><div :class="profitClass(item.change_rate)">{{ formatPercent(item.change_rate) }}</div></div></el-col></el-row>
       <div v-if="!marketIndicesLoading && !marketIndices.length" class="empty-state">暂无指数行情，请刷新后重试。</div>
-      <el-card shadow="never" class="panel-card" :class="{ 'sector-skeleton': isDashboardInitialLoading }"><div slot="header" class="panel-header"><span>板块复盘分析</span><span class="panel-tip">{{ sectorReviewTab === 'ranking' ? `${dashboard.sectors.source_label} · 前 10 名` : `${sectorFundFlow.source_label || '行业资金流'} · 每 30 秒采样` }}</span></div><el-tabs v-model="sectorReviewTab" class="sector-review-tabs" @tab-click="handleSectorReviewTab"><el-tab-pane label="涨跌幅排名" name="ranking"><div class="sector-columns"><div class="sector-block"><h3>涨幅居前</h3><div v-for="(item, index) in dashboard.sectors.gainers" :key="item.name" class="sector-item"><div class="sector-rank">{{ index + 1 }}</div><div class="sector-content"><div class="sector-name">{{ item.name }}</div><div class="sector-reason">{{ item.reason }}</div></div><div class="positive">{{ formatPercent(item.change_rate) }}</div></div></div><div class="sector-block"><h3>跌幅居前</h3><div v-for="(item, index) in dashboard.sectors.losers" :key="item.name" class="sector-item"><div class="sector-rank">{{ index + 1 }}</div><div class="sector-content"><div class="sector-name">{{ item.name }}</div><div class="sector-reason">{{ item.reason }}</div></div><div class="negative">{{ formatPercent(item.change_rate) }}</div></div></div></div></el-tab-pane><el-tab-pane label="资金轮动" name="flow"><div v-if="sectorFundFlowLoading" class="chart-skeleton sector-flow-skeleton" aria-label="正在加载板块资金轮动"><i /><i /><i /><i /><i /></div><template v-else-if="sectorFundFlow.series.length"><div class="sector-flow-meta"><span>{{ sectorFundFlow.trade_date }} {{ sectorFundFlow.start_at }} 起</span><span>更新至 {{ sectorFundFlow.updated_at }}</span><span>单位：{{ sectorFundFlow.unit }}</span></div><div ref="sectorFundFlowChart" class="sector-flow-chart" role="img" aria-label="板块资金流入动态轮动图" /></template><div v-else class="empty-state sector-flow-empty">暂无采样数据。交易日 09:30 后会自动每 30 秒采集并生成轮动轨迹。</div></el-tab-pane></el-tabs></el-card>
+      <el-card shadow="never" class="panel-card" :class="{ 'sector-skeleton': isDashboardInitialLoading }"><div slot="header" class="panel-header"><span>板块复盘分析</span><span class="panel-tip">{{ dashboard.sectors.source_label }} · 前 10 名</span></div><div class="sector-columns"><div class="sector-block"><h3>涨幅居前</h3><div v-for="(item, index) in dashboard.sectors.gainers" :key="item.name" class="sector-item"><div class="sector-rank">{{ index + 1 }}</div><div class="sector-content"><div class="sector-name">{{ item.name }}</div><div class="sector-reason">{{ item.reason }}</div></div><div class="positive">{{ formatPercent(item.change_rate) }}</div></div></div><div class="sector-block"><h3>跌幅居前</h3><div v-for="(item, index) in dashboard.sectors.losers" :key="item.name" class="sector-item"><div class="sector-rank">{{ index + 1 }}</div><div class="sector-content"><div class="sector-name">{{ item.name }}</div><div class="sector-reason">{{ item.reason }}</div></div><div class="negative">{{ formatPercent(item.change_rate) }}</div></div></div></div></el-card>
     </section>
 
     <section v-else>
@@ -158,7 +157,7 @@
 
 <script>
 import * as echarts from 'echarts'
-import { deleteHolding, fetchDashboard, fetchFundHistory, fetchFundHoldings, fetchFundPerformance, fetchIntradayChart, fetchMarketIndices, fetchNews, fetchSectorFundFlow, fetchWatchlist, lookupInstrument, moveWatchlistGroup, removeWatchlistGroup, removeWatchlistItem, saveHolding, saveWatchlistGroup, saveWatchlistItem, seedDemo, updateHolding } from './api/dashboard'
+import { deleteHolding, fetchDashboard, fetchFundHistory, fetchFundHoldings, fetchFundPerformance, fetchIntradayChart, fetchMarketIndices, fetchNews, fetchWatchlist, lookupInstrument, moveWatchlistGroup, removeWatchlistGroup, removeWatchlistItem, saveHolding, saveWatchlistGroup, saveWatchlistItem, seedDemo, updateHolding } from './api/dashboard'
 
 const emptyDashboard = () => ({
   portfolio: {
@@ -226,16 +225,6 @@ export default {
       marketIndices: [],
       marketIndicesLoading: false,
       activeMarketTab: 'cn',
-      sectorReviewTab: 'ranking',
-      sectorFundFlowLoading: false,
-      sectorFundFlow: { times: [], series: [], trade_date: null, start_at: null, updated_at: null, source_label: '', unit: '亿元', is_demo: false },
-      sectorFundFlowInstance: null,
-      homeSectorFundFlowInstance: null,
-      sectorFundFlowTimer: null,
-      sectorFundFlowPlaybackTimer: null,
-      sectorFundFlowPlaybackIndex: 0,
-      sectorFundFlowPlaybackInterval: 190,
-      sectorFundFlowScale: { min: -1, max: 1 },
       watchlistLoading: false,
       watchlistLoaded: false,
       watchlistCategory: 'exchange',
@@ -368,13 +357,6 @@ export default {
         className: averageChange > 0 ? 'positive' : averageChange < 0 ? 'negative' : 'neutral'
       }
     },
-    homeFlowHighlights() {
-      const latest = this.sectorFundFlow.series.map(item => {
-        const values = item.data.map(Number).filter(Number.isFinite)
-        return { name: item.name, value: values.length ? values[values.length - 1] : 0 }
-      }).sort((left, right) => right.value - left.value)
-      return { inflow: latest[0] || { name: '--', value: 0 }, outflow: latest[latest.length - 1] || { name: '--', value: 0 } }
-    },
     watchGroups() {
       return this.watchlist.groups.filter(group => group.category === this.watchlistCategory)
     },
@@ -398,32 +380,23 @@ export default {
   },
   mounted() {
     window.addEventListener('resize', this.resizeIntradayChart)
-    window.addEventListener('resize', this.resizeSectorFundFlowChart)
     this.newsRefreshTimer = window.setInterval(() => {
       if (this.activeMenu === 'news') this.loadNews(true)
     }, 60000)
-    this.sectorFundFlowTimer = window.setInterval(() => {
-      if (this.activeMenu === 'market' && this.sectorReviewTab === 'flow') this.loadSectorFundFlow()
-    }, 30000)
   },
   beforeDestroy() {
     window.removeEventListener('resize', this.resizeIntradayChart)
-    window.removeEventListener('resize', this.resizeSectorFundFlowChart)
     this.stopRefreshDrag()
     this.stopPrivacyDrag()
     window.clearInterval(this.newsRefreshTimer)
-    window.clearInterval(this.sectorFundFlowTimer)
-    this.stopSectorFundFlowPlayback()
     if (this.intradayInstance) this.intradayInstance.dispose()
-    if (this.sectorFundFlowInstance) this.sectorFundFlowInstance.dispose()
-    if (this.homeSectorFundFlowInstance) this.homeSectorFundFlowInstance.dispose()
   },
   created() {
     this.bootstrap()
   },
   methods: {
     async bootstrap(forceNews = false) {
-      await Promise.all([this.refreshDashboard(), this.loadMarketIndices(), this.loadNews(forceNews), this.loadSectorFundFlow()])
+      await Promise.all([this.refreshDashboard(), this.loadMarketIndices(), this.loadNews(forceNews)])
     },
     async refreshAll() {
       await this.bootstrap(true)
@@ -511,7 +484,6 @@ export default {
       this.activeMenu = menu
       if (menu === 'news') this.loadNews()
       if (menu === 'watchlist') this.loadWatchlist()
-      if (menu === 'home') this.$nextTick(() => this.renderHomeSectorFundFlowChart())
     },
     ensureWatchGroup() {
       const storedId = Number(localStorage.getItem(`quant-workbench-watchlist-${this.watchlistCategory}`))
@@ -637,49 +609,6 @@ export default {
       } finally {
         this.marketIndicesLoading = false
       }
-    },
-    handleSectorReviewTab(tab) {
-      if (tab.name === 'flow') this.loadSectorFundFlow()
-      else this.stopSectorFundFlowPlayback()
-    },
-    async loadSectorFundFlow() {
-      this.sectorFundFlowLoading = true
-      try {
-        const { data } = await fetchSectorFundFlow()
-        this.sectorFundFlow = data
-      } catch (error) {
-        this.$message.warning(error.response?.data?.error || '板块资金流加载失败')
-      } finally {
-        this.sectorFundFlowLoading = false
-        this.$nextTick(() => {
-          this.renderSectorFundFlowChart()
-          this.renderHomeSectorFundFlowChart()
-        })
-      }
-    },
-    openSectorFundFlow() {
-      this.activeMenu = 'market'
-      this.sectorReviewTab = 'flow'
-      this.$nextTick(() => this.loadSectorFundFlow())
-    },
-    renderHomeSectorFundFlowChart() {
-      if (!this.$refs.homeSectorFundFlowChart || !this.sectorFundFlow.series.length) return
-      if (this.homeSectorFundFlowInstance && this.homeSectorFundFlowInstance.getDom() !== this.$refs.homeSectorFundFlowChart) {
-        this.homeSectorFundFlowInstance.dispose()
-        this.homeSectorFundFlowInstance = null
-      }
-      this.homeSectorFundFlowInstance = this.homeSectorFundFlowInstance || echarts.init(this.$refs.homeSectorFundFlowChart)
-      const compact = window.innerWidth < 768
-      this.homeSectorFundFlowInstance.setOption({
-        animation: false,
-        color: ['#d64541', '#ef8b35', '#d2a71b', '#1f9d6a', '#2878d4', '#7a67c7', '#b45a9e', '#168a8a', '#8f6b4f', '#5c7f34', '#d66e6e', '#546e8a'],
-        grid: { left: compact ? 38 : 46, right: 14, top: 12, bottom: 28 },
-        tooltip: { trigger: 'axis', backgroundColor: 'rgba(16, 35, 63, 0.92)', borderWidth: 0, textStyle: { color: '#fff' }, formatter: params => `${params[0].axisValue}<br/>${params.slice(0, 5).map(item => `${item.marker}${item.seriesName}：${Number(item.data).toFixed(1)} 亿`).join('<br/>')}` },
-        xAxis: { type: 'category', boundaryGap: false, data: this.sectorFundFlow.times, axisLabel: { color: '#7b8aa0', fontSize: 10, interval: 0, hideOverlap: true, formatter: value => value.endsWith(':00') && Number(value.slice(3, 5)) % 30 === 0 ? value.slice(0, 5) : '' }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#dbe5f0' } } },
-        yAxis: { type: 'value', scale: true, axisLabel: { color: '#7b8aa0', fontSize: 10, formatter: value => `${value}亿` }, splitLine: { lineStyle: { color: '#edf2f7', type: 'dashed' } } },
-        series: this.sectorFundFlow.series.map(item => ({ name: item.name, type: 'line', data: item.data, smooth: 0.28, showSymbol: false, lineStyle: { width: 1.5 }, emphasis: { focus: 'series' } }))
-      }, true)
-      this.homeSectorFundFlowInstance.resize()
     },
     async openIntradayChart(holding) {
       this.intradayDialogVisible = true
@@ -818,77 +747,6 @@ export default {
     },
     resizeIntradayChart() {
       if (this.intradayInstance) this.intradayInstance.resize()
-    },
-    renderSectorFundFlowChart() {
-      if (!this.$refs.sectorFundFlowChart || !this.sectorFundFlow.series.length) return
-      this.stopSectorFundFlowPlayback()
-      if (this.sectorFundFlowInstance && this.sectorFundFlowInstance.getDom() !== this.$refs.sectorFundFlowChart) {
-        this.sectorFundFlowInstance.dispose()
-        this.sectorFundFlowInstance = null
-      }
-      this.sectorFundFlowInstance = this.sectorFundFlowInstance || echarts.init(this.$refs.sectorFundFlowChart)
-      const values = this.sectorFundFlow.series.flatMap(item => item.data).map(Number).filter(Number.isFinite)
-      const low = Math.min(...values, 0)
-      const high = Math.max(...values, 0)
-      const padding = Math.max((high - low) * 0.025, 0.1)
-      this.sectorFundFlowScale = { min: low - padding, max: high + padding }
-      this.sectorFundFlowPlaybackIndex = 0
-      const totalPoints = this.sectorFundFlow.times.length
-      // Limit redraws while using elapsed time so dense samples still replay in five seconds.
-      const maxFrames = Math.min(Math.max(totalPoints - 1, 1), 60)
-      const step = Math.max(Math.ceil((totalPoints - 1) / maxFrames), 1)
-      const frameCount = Math.ceil((totalPoints - 1) / step)
-      this.sectorFundFlowPlaybackInterval = Math.round(5000 / Math.max(frameCount, 1))
-      this.updateSectorFundFlowFrame()
-      const replayDuration = 7000
-      const startedAt = performance.now()
-      const playNextFrame = now => {
-        const progress = Math.min((now - startedAt) / replayDuration, 1)
-        const nextIndex = Math.min(Math.floor(progress * frameCount) * step, totalPoints - 1)
-        if (nextIndex !== this.sectorFundFlowPlaybackIndex) {
-          this.sectorFundFlowPlaybackIndex = nextIndex
-          this.updateSectorFundFlowFrame()
-        }
-        if (progress < 1) this.sectorFundFlowPlaybackTimer = window.requestAnimationFrame(playNextFrame)
-        else {
-          this.sectorFundFlowPlaybackIndex = totalPoints - 1
-          this.updateSectorFundFlowFrame()
-          this.sectorFundFlowPlaybackTimer = null
-        }
-      }
-      this.sectorFundFlowPlaybackTimer = window.requestAnimationFrame(playNextFrame)
-    },
-    updateSectorFundFlowFrame() {
-      if (!this.sectorFundFlowInstance) return
-      const colors = ['#d64541', '#ef8b35', '#d2a71b', '#1f9d6a', '#2878d4', '#7a67c7', '#b45a9e', '#168a8a', '#8f6b4f', '#5c7f34', '#d66e6e', '#546e8a']
-      const visibleUntil = this.sectorFundFlowPlaybackIndex
-      const compact = window.innerWidth < 768
-      this.sectorFundFlowInstance.setOption({
-        animationDuration: 260,
-        animationDurationUpdate: Math.round(this.sectorFundFlowPlaybackInterval * 0.76),
-        animationEasingUpdate: 'cubicInOut',
-        color: colors,
-        grid: { left: compact ? 46 : 58, right: compact ? 96 : 148, top: 26, bottom: 52 },
-        tooltip: {
-          trigger: 'axis',
-          backgroundColor: 'rgba(16, 35, 63, 0.92)',
-          borderWidth: 0,
-          textStyle: { color: '#fff' },
-          formatter: params => `${params[0].axisValue}<br/>${params.map(item => `${item.marker}${item.seriesName}：${item.data === null ? '--' : `${Number(item.data).toFixed(2)} 亿`}`).join('<br/>')}`
-        },
-        xAxis: { type: 'category', boundaryGap: false, data: this.sectorFundFlow.times, axisLabel: { color: '#6b7a90', interval: 0, hideOverlap: true, formatter: value => value.endsWith(':00') && Number(value.slice(3, 5)) % 30 === 0 ? value.slice(0, 5) : '' }, axisLine: { lineStyle: { color: '#dbe5f0' } } },
-        yAxis: { type: 'value', scale: true, min: () => this.sectorFundFlowScale.min, max: () => this.sectorFundFlowScale.max, splitNumber: 6, name: '净流入（亿）', nameTextStyle: { color: '#6b7a90' }, axisLabel: { color: '#6b7a90', formatter: value => `${value} 亿` }, splitLine: { lineStyle: { color: '#e5edf6', type: 'dashed' } } },
-        series: this.sectorFundFlow.series.map(item => ({ name: item.name, type: 'line', smooth: 0.28, showSymbol: false, connectNulls: false, endLabel: { show: true, fontSize: compact ? 10 : 12, formatter: params => `${params.seriesName} ${Number.isFinite(Number(params.value)) ? Number(params.value).toFixed(1) : '--'}亿` }, labelLayout: { moveOverlap: 'shiftY', hideOverlap: false }, data: item.data.map((value, index) => index <= visibleUntil ? value : null), lineStyle: { width: 2 }, emphasis: { focus: 'series' } }))
-      }, visibleUntil === 0)
-      this.sectorFundFlowInstance.resize()
-    },
-    stopSectorFundFlowPlayback() {
-      if (this.sectorFundFlowPlaybackTimer) window.cancelAnimationFrame(this.sectorFundFlowPlaybackTimer)
-      this.sectorFundFlowPlaybackTimer = null
-    },
-    resizeSectorFundFlowChart() {
-      if (this.sectorFundFlowInstance) this.sectorFundFlowInstance.resize()
-      if (this.homeSectorFundFlowInstance) this.homeSectorFundFlowInstance.resize()
     },
     async submitHolding() {
       this.savingCreate = true
@@ -1675,33 +1533,6 @@ h1 {
   width: 72%;
 }
 
-.home-flow-card {
-  cursor: default;
-}
-
-.home-flow-highlights {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  padding: 0 2px 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.home-sector-flow-chart,
-.home-flow-skeleton {
-  width: 100%;
-  height: 188px;
-}
-
-.home-sector-flow-chart {
-  cursor: pointer;
-}
-
-.home-flow-empty {
-  min-height: 188px;
-}
-
 .stat-card,
 .panel-card {
   border-radius: 20px;
@@ -1886,32 +1717,6 @@ h1 {
   gap: 18px;
 }
 
-.sector-review-tabs ::v-deep .el-tabs__header {
-  margin-bottom: 20px;
-}
-
-.sector-flow-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  margin: -4px 0 12px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.sector-flow-chart {
-  width: 100%;
-  height: 720px;
-}
-
-.sector-flow-skeleton {
-  height: 720px;
-}
-
-.sector-flow-empty {
-  margin-bottom: 0;
-}
-
 .sector-block h3 {
   margin: 0 0 14px;
 }
@@ -2001,11 +1806,6 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .sector-flow-chart,
-  .sector-flow-skeleton {
-    height: 560px;
-  }
-
   .hero-actions {
     width: 100%;
     flex-wrap: wrap;
@@ -2086,11 +1886,6 @@ h1 {
 
   .temperature-main strong {
     font-size: 26px;
-  }
-
-  .home-sector-flow-chart,
-  .home-flow-skeleton {
-    height: 174px;
   }
 
   .market-index-row .el-col {

@@ -20,10 +20,6 @@ export function fetchMarketIndices() {
   return request.get('/market-indices')
 }
 
-export function fetchSectorFundFlow() {
-  return request.get('/sector-fund-flow')
-}
-
 export function fetchNews() {
   return request.get('/news', { timeout: 45000 })
 }

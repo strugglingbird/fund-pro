@@ -41,8 +41,6 @@ class AppHandler(BaseHTTPRequestHandler):
             return self._send_json(service.list_watchlist())
         if parsed.path == "/api/market-indices":
             return self._send_json(service.get_market_indices())
-        if parsed.path == "/api/sector-fund-flow":
-            return self._send_json(service.get_sector_fund_flow())
         if parsed.path == "/api/news":
             return self._send_json(service.get_news())
         if parsed.path == "/api/health":

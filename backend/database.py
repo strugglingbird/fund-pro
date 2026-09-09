@@ -44,16 +44,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS sector_fund_flow_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    captured_at TEXT NOT NULL,
-    trade_date TEXT NOT NULL,
-    sector_name TEXT NOT NULL,
-    net_inflow REAL NOT NULL,
-    UNIQUE(captured_at, sector_name)
-);
-CREATE INDEX IF NOT EXISTS idx_sector_fund_flow_date
-    ON sector_fund_flow_snapshots(trade_date, captured_at);
 """
 
 
@@ -88,15 +78,6 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
 CREATE TABLE IF NOT EXISTS app_settings (
     `key` VARCHAR(128) PRIMARY KEY,
     value TEXT NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE TABLE IF NOT EXISTS sector_fund_flow_snapshots (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    captured_at VARCHAR(19) NOT NULL,
-    trade_date VARCHAR(10) NOT NULL,
-    sector_name VARCHAR(128) NOT NULL,
-    net_inflow DOUBLE NOT NULL,
-    UNIQUE KEY uq_sector_fund_flow_snapshot (captured_at, sector_name),
-    KEY idx_sector_fund_flow_date (trade_date, captured_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
 
@@ -167,9 +148,11 @@ def init_db():
                     "INSERT INTO app_settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
                     ("watchlist_defaults_initialized", "1")
                 )
+            conn.execute("DROP TABLE IF EXISTS sector_fund_flow_snapshots")
             conn.commit()
             return
         conn.executescript(SCHEMA_SQL)
+        conn.execute("DROP TABLE IF EXISTS sector_fund_flow_snapshots")
         group_columns = {row["name"] for row in conn.execute("PRAGMA table_info(watchlist_groups)").fetchall()}
         if "sort_order" not in group_columns:
             conn.execute("ALTER TABLE watchlist_groups ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
