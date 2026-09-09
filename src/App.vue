@@ -33,9 +33,14 @@
       </el-row>
       <el-row :gutter="18" class="home-content-row">
         <el-col :xs="24" :lg="14">
-          <el-card shadow="never" class="panel-card">
-            <div slot="header" class="panel-header"><span>持仓概览</span><el-button type="text" @click="activeMenu = 'holdings'">查看全部</el-button></div>
-            <el-table :data="dashboard.portfolio.positions" size="small" max-height="250" :class="{ 'table-skeleton': isDashboardInitialLoading }"><el-table-column prop="name" label="名称"><template slot-scope="{ row }"><el-button type="text" class="position-link" @click="openIntradayChart(row)">{{ row.name }}</el-button></template></el-table-column><el-table-column prop="market_value" label="市值" width="130"><template slot-scope="{ row }">{{ formatHoldingMoney(row.market_value) }}</template></el-table-column><el-table-column prop="today_pnl" label="当日收益" width="130"><template slot-scope="{ row }"><span :class="profitClass(row.today_pnl)">{{ formatHoldingMoney(row.today_pnl, true) }}</span></template></el-table-column></el-table>
+          <el-card shadow="never" class="panel-card home-sector-card">
+            <div slot="header" class="panel-header"><span>板块排行</span><el-button type="text" @click="activeMenu = 'market'">完整复盘</el-button></div>
+            <div v-if="isDashboardInitialLoading" class="home-sector-skeleton"><i v-for="row in 5" :key="row" /></div>
+            <div v-else-if="dashboard.sectors.gainers.length || dashboard.sectors.losers.length" class="home-sector-columns">
+              <div class="home-sector-list"><h3>涨幅榜</h3><div v-for="(item, index) in dashboard.sectors.gainers.slice(0, 5)" :key="item.name" class="home-sector-item"><span class="home-sector-rank">{{ index + 1 }}</span><span class="home-sector-name">{{ item.name }}</span><strong class="positive">{{ formatPercent(item.change_rate) }}</strong></div></div>
+              <div class="home-sector-list"><h3>跌幅榜</h3><div v-for="(item, index) in dashboard.sectors.losers.slice(0, 5)" :key="item.name" class="home-sector-item"><span class="home-sector-rank">{{ index + 1 }}</span><span class="home-sector-name">{{ item.name }}</span><strong class="negative">{{ formatPercent(item.change_rate) }}</strong></div></div>
+            </div>
+            <div v-else class="empty-state">暂无板块排行，请稍后刷新。</div>
           </el-card>
         </el-col>
         <el-col :xs="24" :lg="10">
@@ -1785,6 +1790,69 @@ h1 {
   text-decoration: underline;
 }
 
+.home-sector-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 26px;
+}
+
+.home-sector-list h3 {
+  margin: 0 0 8px;
+  color: #18324d;
+  font-size: 15px;
+}
+
+.home-sector-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border-bottom: 1px solid rgba(105, 130, 158, 0.13);
+}
+
+.home-sector-item:last-child {
+  border-bottom: 0;
+}
+
+.home-sector-rank {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: #edf4fb;
+  color: #607891;
+  font-size: 12px;
+  line-height: 24px;
+  text-align: center;
+}
+
+.home-sector-name {
+  overflow: hidden;
+  color: #243b53;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-sector-item strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.home-sector-skeleton {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 26px;
+}
+
+.home-sector-skeleton i {
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eef3f8 25%, #f8fafc 45%, #eef3f8 65%);
+  background-size: 300% 100%;
+  animation: skeleton-loading 1.4s ease infinite;
+}
+
 .sector-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1878,6 +1946,15 @@ h1 {
 
   .sector-columns {
     grid-template-columns: 1fr;
+  }
+
+  .home-sector-columns,
+  .home-sector-skeleton {
+    grid-template-columns: 1fr;
+  }
+
+  .home-sector-columns {
+    gap: 18px;
   }
 
   .hero-actions {
