@@ -1,8 +1,34 @@
-from datetime import datetime
-
 from database import get_connection, init_db
 from fund_archives import read_archive
-from providers import cache_market_value, fetch_tencent_watch_quote_batch, fetch_financial_news, fetch_fund123_intraday_chart, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, fetch_tencent_intraday_chart, market_now
+from providers import cache_market_value, fetch_tencent_watch_quote_batch, fetch_financial_news, fetch_fund123_intraday_chart, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, fetch_tencent_intraday_chart, format_timestamp, market_now
+
+
+def empty_quote():
+    """Placeholder written onto a watchlist item when every quote source failed."""
+    return {
+        "current_price": None,
+        "previous_close": None,
+        "daily_change_rate": None,
+        "estimated_price": None,
+        "estimated_change_rate": None,
+        "source_label": "暂无行情"
+    }
+
+
+def empty_market_breadth():
+    """Placeholder returned when neither the live snapshot nor the fallback is available."""
+    return {
+        "available": False,
+        "rising": 0,
+        "falling": 0,
+        "flat": 0,
+        "limit_up": 0,
+        "limit_down": 0,
+        "total": 0,
+        "data_date": None,
+        "is_realtime": False,
+        "source_label": "AkShare 全 A 股实时行情"
+    }
 
 
 # Indices offered for intraday comparison with the portfolio P&L curve.
@@ -177,14 +203,13 @@ class DashboardService:
             [(item["code"], item["asset_type"]) for item in exchange_items]
         )
         for item in fund_items:
-            market = fetch_fund_valuation(item["code"])
-            item.update(market or {"current_price": None, "previous_close": None, "daily_change_rate": None, "estimated_price": None, "estimated_change_rate": None, "source_label": "暂无行情"})
+            item.update(fetch_fund_valuation(item["code"]) or empty_quote())
         for item in exchange_items:
             market = quotes_by_code.get(str(item["code"]).strip().zfill(6))
             if market is None:
                 market = fetch_quote_by_code(item["code"])
-            item.update(market or {"current_price": None, "previous_close": None, "daily_change_rate": None, "estimated_price": None, "estimated_change_rate": None, "source_label": "暂无行情"})
-        return {"groups": groups, "items": items, "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")}
+            item.update(market or empty_quote())
+        return {"groups": groups, "items": items, "generated_at": format_timestamp()}
 
     def create_watchlist_group(self, payload):
         name, category = str(payload.get("name", "")).strip(), str(payload.get("category", "")).strip()
@@ -246,6 +271,76 @@ class DashboardService:
             conn.execute("DELETE FROM watchlist_items WHERE id = ?", (item_id,)); conn.commit()
         finally: conn.close()
 
+    @staticmethod
+    def _build_position(holding, market):
+        """Compute one holding's display fields and the amounts the portfolio totals need.
+
+        Returns ``(position, summary)``: ``position`` is the API payload for the
+        holdings table, ``summary`` carries the intermediate amounts that
+        :meth:`get_dashboard` aggregates across every holding.
+        """
+        quantity = float(holding["quantity"])
+        cost_price = float(holding["cost_price"])
+        is_fund = holding["asset_type"] == "fund"
+        previous_close = float(market.get("previous_close") or cost_price)
+
+        quoted_current_price = market.get("current_price")
+        current_price = float(quoted_current_price) if quoted_current_price is not None else None
+        estimated_price = market.get("estimated_price")
+        if is_fund:
+            previous_close = round(previous_close, 4)
+            current_price = round(current_price, 4) if current_price is not None else None
+            estimated_price = round(float(estimated_price), 4) if estimated_price is not None else None
+        else:
+            current_price = current_price if current_price is not None else previous_close
+
+        estimated_change_rate = market.get("estimated_change_rate")
+        if is_fund and estimated_price is None and estimated_change_rate is not None and previous_close:
+            estimated_price = round(previous_close * (1 + float(estimated_change_rate) / 100), 4)
+
+        market_value = quantity * (current_price or estimated_price or previous_close)
+        cost_amount = quantity * cost_price
+        holding_pnl = market_value - cost_amount
+        yesterday_market_value = quantity * previous_close
+        daily_change_rate = market.get("daily_change_rate")
+        today_pnl = None
+        if daily_change_rate is not None:
+            today_pnl = yesterday_market_value * float(daily_change_rate) / 100
+
+        estimated_pnl = None
+        if not is_fund:
+            # On-exchange holdings have no separate estimate; today's move is the real one.
+            estimated_price = current_price
+            estimated_change_rate = daily_change_rate
+            estimated_pnl = today_pnl
+        elif estimated_change_rate is not None and previous_close:
+            estimated_pnl = yesterday_market_value * float(estimated_change_rate) / 100
+
+        position = {
+            **holding,
+            "current_price": current_price,
+            "estimated_price": estimated_price,
+            "market_value": market_value,
+            "holding_pnl": holding_pnl,
+            "holding_pnl_rate": (holding_pnl / cost_amount * 100) if cost_amount else 0,
+            "previous_close": previous_close,
+            "today_pnl": today_pnl,
+            "today_pnl_rate": float(daily_change_rate) if daily_change_rate is not None else 0,
+            "daily_change_rate": daily_change_rate,
+            "estimated_change_rate": estimated_change_rate,
+            "estimated_pnl": estimated_pnl,
+            "source_label": market.get("source_label", "本地估算")
+        }
+        summary = {
+            "market_value": market_value,
+            "cost_amount": cost_amount,
+            "holding_pnl": holding_pnl,
+            "today_pnl": today_pnl,
+            "estimated_pnl": estimated_pnl,
+            "yesterday_market_value": yesterday_market_value
+        }
+        return position, summary
+
     def get_dashboard(self):
         positions = []
         total_market_value = 0.0
@@ -257,99 +352,43 @@ class DashboardService:
         total_estimated_base = 0.0
 
         for holding in self.list_holdings():
-            market = self._load_market_data(holding)
-            quantity = float(holding["quantity"])
-            cost_price = float(holding["cost_price"])
-            previous_close = float(market.get("previous_close") or cost_price)
-            quoted_current_price = market.get("current_price")
-            current_price = float(quoted_current_price) if quoted_current_price is not None else None
-            estimated_price = market.get("estimated_price")
-            if holding["asset_type"] == "fund":
-                previous_close = round(previous_close, 4)
-                current_price = round(current_price, 4) if current_price is not None else None
-                estimated_price = round(float(estimated_price), 4) if estimated_price is not None else None
-            else:
-                current_price = current_price if current_price is not None else previous_close
-            estimated_change_rate = market.get("estimated_change_rate")
-            if holding["asset_type"] == "fund" and estimated_price is None and estimated_change_rate is not None and previous_close:
-                estimated_price = round(previous_close * (1 + float(estimated_change_rate) / 100), 4)
+            position, summary = self._build_position(holding, self._load_market_data(holding))
+            positions.append(position)
+            total_market_value += summary["market_value"]
+            total_cost += summary["cost_amount"]
+            total_holding_pnl += summary["holding_pnl"]
+            total_today_pnl += summary["today_pnl"] or 0
+            total_estimated_pnl += summary["estimated_pnl"] or 0
+            if summary["today_pnl"] is not None:
+                total_actual_base += summary["yesterday_market_value"]
+            if summary["estimated_pnl"] is not None:
+                total_estimated_base += summary["yesterday_market_value"]
 
-            market_value = quantity * (current_price or estimated_price or previous_close)
-            cost_amount = quantity * cost_price
-            holding_pnl = market_value - cost_amount
-            holding_pnl_rate = (holding_pnl / cost_amount * 100) if cost_amount else 0
-            yesterday_market_value = quantity * previous_close
-            daily_change_rate = market.get("daily_change_rate")
-            today_pnl = None
-            if daily_change_rate is not None:
-                today_pnl = yesterday_market_value * float(daily_change_rate) / 100
-            today_pnl_rate = float(daily_change_rate) if daily_change_rate is not None else 0
-            estimated_pnl = None
-            if holding["asset_type"] != "fund":
-                estimated_price = current_price
-                estimated_change_rate = daily_change_rate
-                estimated_pnl = today_pnl
-            elif estimated_change_rate is not None and previous_close:
-                estimated_pnl = yesterday_market_value * float(estimated_change_rate) / 100
-
-            total_market_value += market_value
-            total_cost += cost_amount
-            total_holding_pnl += holding_pnl
-            total_today_pnl += today_pnl or 0
-            total_estimated_pnl += estimated_pnl or 0
-            if today_pnl is not None:
-                total_actual_base += yesterday_market_value
-            if estimated_pnl is not None:
-                total_estimated_base += yesterday_market_value
-
-            positions.append(
-                {
-                    **holding,
-                    "current_price": current_price,
-                    "estimated_price": estimated_price,
-                    "market_value": market_value,
-                    "holding_pnl": holding_pnl,
-                    "holding_pnl_rate": holding_pnl_rate,
-                    "previous_close": previous_close,
-                    "today_pnl": today_pnl,
-                    "today_pnl_rate": today_pnl_rate,
-                    "daily_change_rate": daily_change_rate,
-                    "estimated_change_rate": estimated_change_rate,
-                    "estimated_pnl": estimated_pnl,
-                    "source_label": market.get("source_label", "本地估算"),
-                    "analysis": self._build_position_analysis(holding, today_pnl_rate, market)
-                }
-            )
-
-        total_today_pnl_rate = (total_today_pnl / total_actual_base * 100) if total_actual_base else 0
-        total_estimated_pnl_rate = (total_estimated_pnl / total_estimated_base * 100) if total_estimated_base else 0
-        total_holding_pnl_rate = (total_holding_pnl / total_cost * 100) if total_cost else 0
         live_sectors = fetch_sector_rankings()
         market_breadth = fetch_market_breadth()
-        sectors = {
-            **(live_sectors or FALLBACK_SECTORS),
-            "source_label": (live_sectors or {}).get("source_label", "本地回退榜单")
-        }
         return {
             "portfolio": {
                 "positions": positions,
                 "total_market_value": total_market_value,
                 "total_cost": total_cost,
                 "total_holding_pnl": total_holding_pnl,
-                "total_holding_pnl_rate": total_holding_pnl_rate,
+                "total_holding_pnl_rate": (total_holding_pnl / total_cost * 100) if total_cost else 0,
                 "total_today_pnl": total_today_pnl,
                 "total_estimated_pnl": total_estimated_pnl,
-                "total_estimated_pnl_rate": total_estimated_pnl_rate,
-                "total_today_pnl_rate": total_today_pnl_rate
+                "total_estimated_pnl_rate": (total_estimated_pnl / total_estimated_base * 100) if total_estimated_base else 0,
+                "total_today_pnl_rate": (total_today_pnl / total_actual_base * 100) if total_actual_base else 0
             },
             "news": self._empty_news(),
-            "market_breadth": market_breadth or {"available": False, "rising": 0, "falling": 0, "flat": 0, "limit_up": 0, "limit_down": 0, "total": 0, "data_date": None, "is_realtime": False, "source_label": "AkShare 全 A 股实时行情"},
-            "sectors": sectors,
-            "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
+            "market_breadth": market_breadth or empty_market_breadth(),
+            "sectors": {
+                **(live_sectors or FALLBACK_SECTORS),
+                "source_label": (live_sectors or {}).get("source_label", "本地回退榜单")
+            },
+            "generated_at": format_timestamp()
         }
 
     def get_market_indices(self):
-        return {"items": fetch_market_indices(), "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")}
+        return {"items": fetch_market_indices(), "generated_at": format_timestamp()}
 
     def get_news(self):
         return fetch_financial_news() or self._empty_news()
@@ -464,7 +503,7 @@ class DashboardService:
             "indices": indices,
             "missing_holdings": missing,
             "source_label": source_label,
-            "generated_at": now.strftime("%Y-%m-%d %H:%M:%S")
+            "generated_at": format_timestamp(now)
         }
 
     @staticmethod
@@ -474,7 +513,7 @@ class DashboardService:
             "groups": [],
             "total_count": 0,
             "source_label": "AkShare 财经快讯",
-            "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")
+            "generated_at": format_timestamp()
         }
 
     def _load_market_data(self, holding):
@@ -494,21 +533,3 @@ class DashboardService:
             "estimated_change_rate": None,
             "source_label": "本地回退数据"
         }
-
-    def _build_position_analysis(self, holding, today_pnl_rate, market):
-        if holding["asset_type"] == "fund":
-            if market.get("source_label", "").startswith("fund123"):
-                source_hint = "fund123 估值"
-            else:
-                source_hint = market.get("source_label", "基金估值")
-            if today_pnl_rate > 1:
-                return f"{source_hint}显示盘中走强，可结合指数联动判断是否加仓。"
-            if today_pnl_rate < -1:
-                return f"{source_hint}偏弱，适合检查对应行业指数和成交额变化。"
-            return f"{source_hint}波动平稳，建议结合净值披露与板块强弱继续观察。"
-
-        if today_pnl_rate > 2:
-            return "日内强于大盘，若伴随放量可关注趋势延续。"
-        if today_pnl_rate < -2:
-            return "回撤较明显，适合复核消息面是否出现负面扰动。"
-        return "走势相对平稳，可结合板块轮动判断是否继续持有。"

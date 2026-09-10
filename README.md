@@ -21,6 +21,7 @@
 - [数据迁移与备份](#数据迁移与备份)
 - [验证与排障](#验证与排障)
 - [文档维护](#文档维护)
+  - [已移除功能](#已移除功能)
 
 ## 功能介绍
 
@@ -67,19 +68,20 @@
 
 ```text
 浏览器 / Android WebView
-  -> App.vue -> Axios (/api)
+  -> App.vue -> 子组件 (components/) -> Axios (/api)
   -> Vue CLI 开发代理 / 服务器 Caddy
-  -> app.py HTTP 路由
-     -> services.py 持仓、自选、汇总计算、当日收益走势
+  -> app.py 路由表 + 统一异常处理
+     -> services.py DashboardService 编排、持仓/自选、收益计算
         -> database.py -> SQLite / MySQL
-        -> providers.py -> 进程内缓存 -> 外部行情/基金/新闻
+        -> providers/ 子包 (quotes/market/fund123/eastmoney/news/funds)
+           -> 进程内缓存 (core.cache_market_value) -> 外部行情/基金/新闻
      -> fund_archives.py -> 数据库历史估值
 
 后端启动 -> 收盘归档线程 -> 交易日判断 -> 持仓/自选标的去重
   -> fund123 估值 / 腾讯场内分时 -> 日期及收盘点校验 -> 数据库
 ```
 
-`App.vue` 用 activeMenu 切换菜单，没有 Vue Router 或 Vuex。菜单、弹窗、图表和请求状态集中管理。后端每个 HTTP 请求在线程中执行，部分指数并发抓取；归档和韩国指数刷新使用进程内后台线程。
+`App.vue` 用 activeMenu 切换菜单，没有 Vue Router 或 Vuex。面板放在 `src/components/`，弹窗与悬浮按钮同理；共享格式化逻辑在 `src/utils/format.js`，可拖拽悬浮按钮在 `src/mixins/`。后端每个 HTTP 请求在线程中执行，部分指数并发抓取；归档和韩国指数刷新使用进程内后台线程。
 
 ## 代码结构
 
@@ -87,19 +89,25 @@
 fund-pro/
   src/
     main.js                 Vue/Element UI 初始化和全局 CSS
-    App.vue                 菜单、表单、ECharts、隐私和定时刷新
+    App.vue                 导航、全局状态、定时刷新；不再承载面板/弹窗模板
     api/dashboard.js        Axios 地址、超时及全部 API 函数
-    styles/global.css       PC/移动端布局、Skeleton、悬浮按钮
+    components/             面板 (Home/Holdings/Watchlist/Market/News) + 弹窗 + FloatingActions
+    mixins/                 numberFormat、draggableFab
+    utils/format.js         14 个共用格式化纯函数
+    styles/global.css       主题变量、滚动条、body 背景
+    styles/workspace.css    共享的 layout class（卡片、表格、菜单、弹窗骨架等）
   public/
     index.html              HTML 入口模板
     runtime-config.js       浏览器运行时 API 地址
   backend/
     run.py                  后端启动入口
-    app.py                  HTTP 路由、JSON、归档线程生命周期
-    services.py             持仓/自选 CRUD、收益和市场汇总、当日收益走势、降级数据
-    providers.py            外部接口、解析、缓存、行情时间判断
+    app.py                  路由表 + 统一异常处理 + JSON
+    services.py             DashboardService：持仓/自选 CRUD、收益汇总、当日走势、降级数据
+    providers/              子包：core/quotes/fund123/eastmoney/market/news/funds
     database.py             SQLite/MySQL 连接、建表及兼容 SQL
     fund_archives.py        收盘采集、归档校验、历史日期及读取
+  docs/
+    CODE_STANDARDS.md       项目代码与架构规范（强约束）
   scripts/
     deploy.sh               Linux 构建、复制静态资源、Compose 和校验
     verify-deployment.py    首页同源 JS/CSS 状态、MIME、HTML 误返回检查
@@ -306,7 +314,7 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 | GET /instruments/estimate-archive | code, asset_type 可选（默认 fund） | 日期倒序 dates；支持 stock/etf/fund |
 | GET /instruments/estimate-archive | code, date=YYYY-MM-DD, asset_type 可选 | 归档曲线，不存在 404 |
 
-业务类型为 stock/etf/fund，分时接口额外支持 index。当前没有登录、权限隔离、多用户表；响应允许 Access-Control-Allow-Origin: *。部分 GET 异常尚无统一 JSON 错误封装，公网访问控制需由部署环境补充。
+业务类型为 stock/etf/fund，分时接口额外支持 index。当前没有登录、权限隔离、多用户表；响应允许 Access-Control-Allow-Origin: *。所有路由通过 `backend/app.py` 顶部的 `ROUTES` 表分发，错误统一返回 `{"error": "...", "detail": "..."}` 结构（4xx/5xx）。公网访问控制需由部署环境补充。
 
 ## 环境配置
 
@@ -319,7 +327,7 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 | MYSQL_DATABASE / MYSQL_USER | quant_workbench / quant | 数据库及应用用户 |
 | MYSQL_PASSWORD | Compose 必填 | 应用密码 |
 | MYSQL_ROOT_PASSWORD | Compose 必填 | MySQL 初始化/健康检查 |
-| MYSQL_BIND_ADDRESS | 127.0.0.1 | MySQL 宿主机监听地址；默认仅服务器本机访问 |
+| MYSQL_BIND_ADDRESS | 0.0.0.0 | MySQL 监听地址；0.0.0.0 = 监听所有网卡，127.0.0.1 = 仅本地。公网暴露必须配合云安全组白名单 |
 | MYSQL_HOST_PORT | 3306 | MySQL 映射到宿主机的 TCP 端口 |
 | FUND123_ESTIMATE_URL | 默认空 | 自建估值适配地址 |
 | WEB_DOMAIN / API_DOMAIN | .env.deploy 必填 | 站点/API 域名 |
@@ -381,14 +389,14 @@ MYSQL_DATABASE=quant_workbench
 MYSQL_USER=quant
 MYSQL_PASSWORD=replace-with-a-strong-password
 MYSQL_ROOT_PASSWORD=replace-with-a-different-strong-password
-MYSQL_BIND_ADDRESS=127.0.0.1
+MYSQL_BIND_ADDRESS=0.0.0.0
 MYSQL_HOST_PORT=3306
 FUND123_ESTIMATE_URL=
 ```
 
-域名 A 记录指向服务器，开放 80/443。MySQL 映射为 `${MYSQL_BIND_ADDRESS}:${MYSQL_HOST_PORT} -> db:3306`，默认只监听 127.0.0.1，API 的 5000 端口仍只在 Compose 网络内。远程直连需将监听地址改为 0.0.0.0，并在云安全组和系统防火墙中仅对白名单公网 IP 放行 `MYSQL_HOST_PORT`。MySQL 原生连接不经过 Caddy，也不使用网站 HTTPS 证书。证书签发依赖 DNS、端口和证书服务可达；HTTP IP 入口不使用自动 TLS。
+域名 A 记录指向服务器，开放 80/443。MySQL 映射为 `${MYSQL_BIND_ADDRESS}:${MYSQL_HOST_PORT} -> db:3306`，默认 `MYSQL_BIND_ADDRESS=0.0.0.0` 监听所有网卡，**需要**在云安全组和系统防火墙中**仅对白名单公网 IP 放行** `MYSQL_HOST_PORT`；不希望公网访问时改为 `127.0.0.1` 重建 db 容器。API 的 5000 端口仍只在 Compose 网络内。MySQL 原生连接不经过 Caddy，也不使用网站 HTTPS 证书。证书签发依赖 DNS、端口和证书服务可达；HTTP IP 入口不使用自动 TLS。
 
-远程数据库客户端参数：主机填写服务器公网 IP，端口填写 `MYSQL_HOST_PORT`，数据库和账号使用 `MYSQL_DATABASE`、`MYSQL_USER`。应用账号仅用于工作台数据访问，日常远程连接不应使用 root。若不再需要公网访问，将 `MYSQL_BIND_ADDRESS` 改为 `127.0.0.1` 并重新创建 db 容器。
+远程数据库客户端参数：主机填写服务器公网 IP，端口填写 `MYSQL_HOST_PORT`，数据库和账号使用 `MYSQL_DATABASE`、`MYSQL_USER`。应用账号仅用于工作台数据访问，日常远程连接不应使用 root。MySQL 8 默认 `caching_sha2_password`，客户端需在驱动层显式选择（PyMySQL ≥ 1.0、JDBC MySQL Connector ≥ 8.0、Navicat 16+）。
 
 ```bash
 DEPLOY_URL=https://example.com bash scripts/deploy.sh
@@ -460,6 +468,7 @@ docker compose --env-file .env.deploy exec -T db sh -c 'MYSQL_PWD="$MYSQL_PASSWO
 | 归档日期为空 | 场外持仓/自选是否存在；日历、15:05 后服务运行、15:00 点是否返回 |
 | 个别归档缺失 | 异常日志；日期混杂/缺收盘点会跳过，不伪造也不跨日补采 |
 | IP 正常域名异常 | DNS、80/443、安全组、TLS 和网关分别检查 |
+| 远程 3306 连不上 | 服务器上 `ss -tlnp \| grep 3306` 看是否监听 `0.0.0.0`；云安全组是否放行 `MYSQL_HOST_PORT`；MySQL 8 默认 `caching_sha2_password`，旧客户端需升级驱动；应用账号应限制为 `quant@'%'` 或指定 IP 而非 `quant@'%'` |
 
 适配器部分使用关闭证书校验的 SSL 上下文，系统尚无完整生产级认证、访问控制、分布式调度及监控。页面脱敏不能替代 API 权限。以上限制是代码现状说明，不代表本次文档更新同时修复这些问题。
 
@@ -468,3 +477,19 @@ docker compose --env-file .env.deploy exec -T db sh -c 'MYSQL_PWD="$MYSQL_PASSWO
 每次代码调整必须在同一变更中更新 README 受影响/新增内容，覆盖功能、结构、API、依赖、配置、数据库、数据流、来源、计算、缓存、定时任务、构建部署和验证方式。删除功能清理旧描述，如实记录回退与限制，不能把计划当实现。
 
 异步页面继续使用 Skeleton 和成功/空/失败状态。数据源和计算改动验证日期、缺失值、回退；部署完整静态资源并验证业务接口。文档示例使用占位符，不能提交凭据或用户数据。协作约束见 [AGENTS.md](AGENTS.md)。
+
+代码架构、命名、缓存、SQL 改写、组件拆分等结构性约束统一写在 [docs/CODE_STANDARDS.md](docs/CODE_STANDARDS.md)，是改动的强约束（强于本 README 的叙述）。改动 src 或 backend 任何模块前请同步阅读。
+
+### 已移除功能
+
+| 功能 | 移除版本 | 原因 |
+| --- | --- | --- |
+| 资金轮动 / sector_fund_flow_snapshots | 早期 | 实际未启用，初始化时主动 drop 表 |
+| `marktet_cache.cached_value` 缓存访问器 | 2026-09 | 被 `core.cache_market_value` 工厂模式取代，避免散落的 `time.time()+N` |
+| `providers.fetch_akshare_watch_quote` | 2026-09 | 后台手动刷新场景未启用，前端从未消费 |
+| `providers.select_fund123_today_nav` | 2026-09 | 与 `fetch_fund123_nav_text` 重复，无唯一调用方 |
+| `services._build_position_analysis` / `position.analysis` 字段 | 2026-09 | 拼模板字符串，前端从未消费 `analysis`，删除以缩小 dashboard payload |
+| `App.vue` 内联的 14 个格式化方法 | 2026-09 | 抽到 `src/utils/format.js` 与 `src/mixins/numberFormat.js`，组件不再手写格式化 |
+| 可拖拽悬浮按钮的内联实现 | 2026-09 | 抽到 `src/mixins/draggableFab.js`，未来新增悬浮按钮直接 mixin |
+
+如发现上述符号仍在 README、注释或前端代码中出现，说明还没完成清理。
