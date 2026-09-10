@@ -167,7 +167,7 @@
       </span>
     </el-dialog>
 
-    <el-dialog title="当日收益走势 · 指数对比" :visible.sync="pnlTrendDialogVisible" width="860px" @opened="renderPnlTrendChart">
+    <el-dialog title="当日收益率走势 · 指数对比" :visible.sync="pnlTrendDialogVisible" width="860px" @opened="renderPnlTrendChart">
       <div class="pnl-trend-toolbar">
         <span class="pnl-trend-toolbar-label">对比指数</span>
         <el-checkbox-group v-model="pnlTrendIndexCodes" :disabled="pnlTrendLoading">
@@ -178,11 +178,11 @@
 
       <div v-if="pnlTrendLoading" class="pnl-trend-skeleton"><i /><i /><i /><i /></div>
       <div v-else-if="pnlTrendError" class="empty-state">{{ pnlTrendError }}</div>
-      <div v-else-if="!pnlTrend.portfolio.available" class="empty-state">暂无当日收益走势，请确认持仓已录入且行情可用。</div>
+      <div v-else-if="!pnlTrend.portfolio.available" class="empty-state">暂无当日收益率走势，请确认持仓已录入且行情可用。</div>
       <template v-else>
         <div ref="pnlTrendChart" class="pnl-trend-chart" />
         <div class="pnl-trend-meta">
-          <span>昨收基准 {{ formatHoldingMoney(pnlTrend.portfolio.base_value) }}</span>
+          <span>组合当日收益率与指数涨跌幅对比</span>
           <span>覆盖 {{ pnlTrend.portfolio.covered }}/{{ pnlTrend.portfolio.total }} 个持仓</span>
           <span v-if="pnlTrend.missing_holdings.length">未取到分时：{{ pnlTrend.missing_holdings.map(item => item.name).join('、') }}</span>
           <span>{{ pnlTrend.source_label }}</span>
@@ -903,20 +903,19 @@ export default {
         this.pnlTrendInstance = null
       }
       const times = this.pnlTrend.times
-      const pnl = this.pnlTrend.portfolio.pnl
-      const lastPnl = [...pnl].reverse().find(value => value !== null && value !== undefined)
-      const positive = Number(lastPnl || 0) >= 0
+      const rate = this.pnlTrend.portfolio.rate
+      const lastRate = [...rate].reverse().find(value => value !== null && value !== undefined)
+      const positive = Number(lastRate || 0) >= 0
       const portfolioColor = positive ? '#d64541' : '#0f9960'
       const visible = this.pnlTrend.indices.filter(item => item.available && this.pnlTrendIndexCodes.includes(item.code))
-      const masked = !this.holdingsNumbersVisible
 
       const series = [{
-        name: '我的持仓预估收益',
+        name: '我的持仓当日收益率',
         type: 'line',
         yAxisIndex: 0,
         showSymbol: false,
         smooth: true,
-        data: pnl,
+        data: rate,
         lineStyle: { color: portfolioColor, width: 2.5 },
         areaStyle: { color: positive ? 'rgba(214, 69, 65, 0.12)' : 'rgba(15, 153, 96, 0.12)' },
         markLine: { symbol: 'none', lineStyle: { color: '#8394aa', type: 'dashed' }, label: { formatter: '盈亏平衡' }, data: [{ yAxis: 0 }] }
@@ -925,7 +924,7 @@ export default {
         series.push({
           name: item.name,
           type: 'line',
-          yAxisIndex: 1,
+          yAxisIndex: 0,
           showSymbol: false,
           smooth: true,
           data: item.rate,
@@ -937,7 +936,7 @@ export default {
       this.pnlTrendInstance.setOption({
         animationDuration: 350,
         backgroundColor: '#f8fbff',
-        grid: { left: 74, right: 62, top: 52, bottom: 48 },
+        grid: { left: 60, right: 54, top: 52, bottom: 48 },
         legend: {
           top: 8,
           textStyle: { color: '#6b7a90' },
@@ -952,13 +951,7 @@ export default {
             const head = params[0].axisValue
             const lines = params
               .filter(item => item.value !== null && item.value !== undefined)
-              .map(item => {
-                const unit = item.seriesName === '我的持仓预估收益' ? (masked ? '' : ' 元') : '%'
-                const value = item.seriesName === '我的持仓预估收益' && masked
-                  ? '****'
-                  : Number(item.value).toFixed(2)
-                return `${item.marker}${item.seriesName}：${value}${unit}`
-              })
+              .map(item => `${item.marker}${item.seriesName}：${Number(item.value).toFixed(2)}%`)
             return [head, ...lines].join('<br/>')
           }
         },
@@ -969,25 +962,14 @@ export default {
           axisLine: { lineStyle: { color: '#ccd9e8' } },
           axisLabel: { color: '#6b7a90', interval: Math.max(Math.floor(times.length / 6), 1) }
         },
-        yAxis: [
-          {
-            type: 'value',
-            name: '预估收益(元)',
-            nameTextStyle: { color: '#6b7a90' },
-            scale: true,
-            show: !masked,
-            axisLabel: { color: '#6b7a90', formatter: value => Number(value).toFixed(0) },
-            splitLine: { lineStyle: { color: '#e5edf6', type: 'dashed' } }
-          },
-          {
-            type: 'value',
-            name: '涨跌幅(%)',
-            nameTextStyle: { color: '#6b7a90' },
-            scale: true,
-            axisLabel: { color: '#6b7a90', formatter: value => `${Number(value).toFixed(2)}%` },
-            splitLine: { show: false }
-          }
-        ],
+        yAxis: {
+          type: 'value',
+          name: '当日收益率(%)',
+          nameTextStyle: { color: '#6b7a90' },
+          scale: true,
+          axisLabel: { color: '#6b7a90', formatter: value => `${Number(value).toFixed(2)}%` },
+          splitLine: { lineStyle: { color: '#e5edf6', type: 'dashed' } }
+        },
         series
       }, true)
       this.pnlTrendInstance.resize()
