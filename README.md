@@ -70,7 +70,7 @@
 浏览器 / Android WebView
   -> App.vue -> 子组件 (components/) -> Axios (/api)
   -> Vue CLI 开发代理 / 服务器 Caddy
-  -> app.py 路由表 + 统一异常处理
+  -> app.py if/elif 路由链 + _send_error 统一异常处理
      -> services.py DashboardService 编排、持仓/自选、收益计算
         -> database.py -> SQLite / MySQL
         -> providers/ 子包 (quotes/market/fund123/eastmoney/news/funds)
@@ -101,7 +101,7 @@ fund-pro/
     runtime-config.js       浏览器运行时 API 地址
   backend/
     run.py                  后端启动入口
-    app.py                  路由表 + 统一异常处理 + JSON
+    app.py                  if/elif 路由链 + _send_error 统一异常处理 + JSON
     services.py             DashboardService：持仓/自选 CRUD、收益汇总、当日走势、降级数据
     providers/              子包：core/quotes/fund123/eastmoney/market/news/funds
     database.py             SQLite/MySQL 连接、建表及兼容 SQL
@@ -314,7 +314,7 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 | GET /instruments/estimate-archive | code, asset_type 可选（默认 fund） | 日期倒序 dates；支持 stock/etf/fund |
 | GET /instruments/estimate-archive | code, date=YYYY-MM-DD, asset_type 可选 | 归档曲线，不存在 404 |
 
-业务类型为 stock/etf/fund，分时接口额外支持 index。当前没有登录、权限隔离、多用户表；响应允许 Access-Control-Allow-Origin: *。所有路由通过 `backend/app.py` 顶部的 `ROUTES` 表分发，错误统一返回 `{"error": "...", "detail": "..."}` 结构（4xx/5xx）。公网访问控制需由部署环境补充。
+业务类型为 stock/etf/fund，分时接口额外支持 index。当前没有登录、权限隔离、多用户表；响应允许 Access-Control-Allow-Origin: *。所有路由由 `backend/app.py` 的 `do_GET/POST/PUT/DELETE` 通过 if/elif 分发，错误统一返回 `{"error": "..."}` 结构（4xx/5xx），突变路由额外包了 `handle_write_errors` 把 `ValueError` 映射到 400、其他异常映射到 500。公网访问控制需由部署环境补充。
 
 ## 环境配置
 
