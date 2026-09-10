@@ -360,10 +360,10 @@ export default {
           className: ''
         },
         {
-          label: '当日浮盈亏',
-          value: this.formatHoldingMoney(this.dashboard.portfolio.total_today_pnl),
-          foot: `收益率 ${this.formatHoldingPercent(this.dashboard.portfolio.total_today_pnl_rate)}`,
-          className: this.profitClass(this.dashboard.portfolio.total_today_pnl)
+          label: '当日预估盈亏金额',
+          value: this.formatHoldingMoney(this.dashboard.portfolio.total_estimated_pnl),
+          foot: `收益率 ${this.formatHoldingPercent(this.dashboard.portfolio.total_estimated_pnl_rate)}`,
+          className: this.profitClass(this.dashboard.portfolio.total_estimated_pnl)
         },
         {
           label: '消息数量',
