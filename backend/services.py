@@ -2,7 +2,7 @@ from datetime import datetime
 
 from database import get_connection, init_db
 from fund_archives import read_archive
-from providers import cache_market_value, fetch_akshare_watch_quote, fetch_financial_news, fetch_fund123_intraday_chart, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, fetch_tencent_intraday_chart, market_now
+from providers import cache_market_value, fetch_tencent_watch_quote_batch, fetch_financial_news, fetch_fund123_intraday_chart, fetch_fund_valuation, fetch_intraday_chart, fetch_market_breadth, fetch_market_indices, fetch_quote_by_code, fetch_sector_rankings, fetch_tencent_intraday_chart, market_now
 
 
 # Indices offered for intraday comparison with the portfolio P&L curve.
@@ -169,8 +169,20 @@ class DashboardService:
             items = [dict(row) for row in conn.execute("SELECT id, group_id, name, code, asset_type FROM watchlist_items ORDER BY id DESC").fetchall()]
         finally:
             conn.close()
-        for item in items:
-            market = fetch_fund_valuation(item["code"]) if item["asset_type"] == "fund" else fetch_akshare_watch_quote(item["code"], item["asset_type"])
+        # Group off-exchange (fund) entries for their dedicated valuation path;
+        # the on-exchange entries go through a single batched Tencent request.
+        fund_items = [item for item in items if item["asset_type"] == "fund"]
+        exchange_items = [item for item in items if item["asset_type"] != "fund"]
+        quotes_by_code = fetch_tencent_watch_quote_batch(
+            [(item["code"], item["asset_type"]) for item in exchange_items]
+        )
+        for item in fund_items:
+            market = fetch_fund_valuation(item["code"])
+            item.update(market or {"current_price": None, "previous_close": None, "daily_change_rate": None, "estimated_price": None, "estimated_change_rate": None, "source_label": "暂无行情"})
+        for item in exchange_items:
+            market = quotes_by_code.get(str(item["code"]).strip().zfill(6))
+            if market is None:
+                market = fetch_quote_by_code(item["code"])
             item.update(market or {"current_price": None, "previous_close": None, "daily_change_rate": None, "estimated_price": None, "estimated_change_rate": None, "source_label": "暂无行情"})
         return {"groups": groups, "items": items, "generated_at": market_now().strftime("%Y-%m-%d %H:%M:%S")}
 

@@ -160,32 +160,70 @@ def fetch_quote_by_code(code):
 
 
 def fetch_akshare_watch_quote(code, asset_type):
-    """Use AkShare spot data for exchange-traded watchlist instruments."""
+    """Backwards-compat shim: route exchange-traded watchlist quotes through Tencent batch."""
     normalized = str(code).strip()
-    if not normalized or ak is None:
+    if not normalized:
         return fetch_quote_by_code(normalized)
-    cache_key = "akshare-etf-spot" if asset_type == "etf" else "akshare-stock-spot"
+    quotes = fetch_tencent_watch_quote_batch([(normalized, asset_type)])
+    return quotes.get(normalized.zfill(6)) or fetch_quote_by_code(normalized)
+
+
+def fetch_tencent_watch_quote_batch(items):
+    """Fetch many on-exchange (stock / ETF) quotes from Tencent's batch endpoint.
+
+    ``items`` is an iterable of ``(code, asset_type)`` tuples. Asset type is ignored
+    beyond market-prefix resolution — all on-exchange securities share the same
+    ``qt.gtimg.cn/q=`` shape. Codes are normalised to 6 digits with the sh/sz
+    prefix Tencent expects. Returns ``{normalized_code: quote_dict}`` for the
+    entries Tencent actually returned; missing codes are simply absent.
+    """
+    specs = []
+    for code, _asset_type in items:
+        normalized = str(code or "").strip().zfill(6)
+        if len(normalized) != 6 or not normalized.isdigit():
+            continue
+        prefix = "sh" if normalized.startswith(("5", "6", "9")) else "sz"
+        specs.append((normalized, f"{prefix}{normalized}"))
+    if not specs:
+        return {}
+
+    quote_map = {symbol: normalized for normalized, symbol in specs}
     try:
-        frame = cache_market_value(
-            cache_key,
-            lambda: ak.fund_etf_spot_em() if asset_type == "etf" else ak.stock_zh_a_spot_em(),
-            market_quote_ttl()
+        # Tencent caps ``q=`` at a few hundred codes per call; the watchlist is
+        # well within that, so a single request covers every item.
+        payload = http_get(
+            "https://qt.gtimg.cn/q=" + ",".join(symbol for _, symbol in specs),
+            encoding="gbk"
         )
-        if frame is not None:
-            rows = frame.to_dict(orient="records")
-            row = next((item for item in rows if str(item.get("代码", "")).zfill(6) == normalized.zfill(6)), None)
-            if row:
-                current = _to_float(row.get("最新价"))
-                previous = _to_float(row.get("昨收"))
-                change = _to_float(row.get("涨跌幅"))
-                if current is not None:
-                    return {"name": row.get("名称") or normalized, "current_price": current,
-                            "previous_close": previous or current, "change_rate": change or 0,
-                            "daily_change_rate": change or 0, "estimated_change_rate": None,
-                            "source_label": "AkShare 实时行情"}
-    except Exception:
-        pass
-    return fetch_quote_by_code(normalized)
+    except urllib.error.URLError:
+        return {}
+
+    results = {}
+    for raw_line in payload.splitlines():
+        if "=" not in raw_line:
+            continue
+        head, _, value = raw_line.partition("=")
+        symbol = head.lstrip().lstrip("v_").strip()
+        normalized = quote_map.get(symbol)
+        if not normalized:
+            continue
+        value = value.strip().strip(";").strip('"')
+        parts = value.split("~")
+        if len(parts) < 33:
+            continue
+        try:
+            results[normalized] = {
+                "name": parts[1] or normalized,
+                "current_price": float(parts[3] or 0),
+                "previous_close": float(parts[4] or 0),
+                "change_rate": float(parts[32] or 0),
+                "daily_change_rate": float(parts[32] or 0),
+                "estimated_change_rate": None,
+                "source_label": "腾讯实时行情",
+            }
+        except ValueError:
+            continue
+    return results
 
 
 def fetch_market_breadth():
