@@ -57,14 +57,73 @@
 
 ## 软件架构
 
-| 层 | 实现 |
-| --- | --- |
-| 前端 | Vue 2.7、Vue CLI 5、Element UI 2、ECharts 5、Axios 1；具体安装版本由 package-lock.json 锁定 |
-| 后端 | Python 3.11、标准库 ThreadingHTTPServer；没有 Flask/FastAPI、ORM 或独立任务队列 |
-| 数据适配 | AkShare 1.18.94、urllib，部分回退请求使用系统 curl |
-| 存储 | SQLite / PyMySQL 1.1.1；Docker MySQL 8.4；cryptography 46.0.5 支持数据库认证 |
-| 网关 | Caddy 2.8，HTTPS、静态文件与 API 反向代理 |
-| Android | Capacitor 8.5、JDK 21、Gradle；minSdk 24、compileSdk/targetSdk 36 |
+按职责分层描述当前实现，与下方运行时流程图配合阅读。资金轮动功能已移除，相关表初始化时被删除。
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                          客户端 / 部署层                              │
+│   浏览器 (Web)        Android WebView (Capacitor APK, HTTPS API)      │
+└───────────────┬──────────────────────────────────┬───────────────────┘
+                │ HTTPS                            │ 同源 /api
+                ▼                                  ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                          HTTP 网关层                                  │
+│   Caddy 2.8                                                           │
+│     - 静态资源 (frontend/ = dist/)                                     │
+│     - /api/* 反代 → quant-api:5000                                     │
+│     - HTTP IP 入口不入自动 TLS (仅域名入口签发证书)                    │
+└───────────────┬──────────────────────────────────────────────────────┘
+                │ HTTP (容器内)
+                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                          应用服务层 (Python 3.11)                      │
+│   backend/run.py (入口, 加载 .env.local)                              │
+│     └─ ThreadingHTTPServer (无 Flask/FastAPI/ORM)                      │
+│        └─ backend/app.py                                              │
+│           - do_GET/POST/PUT/DELETE if/elif 路由链                       │
+│           - _send_json / _send_error 统一响应                          │
+│           - handle_write_errors 装饰器 (ValueError→400, 其他→500)      │
+│           - FORCE_REFRESH ContextVar 控制强制刷新                      │
+│           └─ backend/services.py                                      │
+│              - DashboardService 编排                                   │
+│              - holdings/watchlist CRUD、收益汇总、当日走势              │
+│              - 静态 FALLBACK_SECTORS 兜底榜单                          │
+└───────────────┬─────────────────────────────┬────────────────────────┘
+                │                             │
+                ▼                             ▼
+┌──────────────────────────────┐  ┌────────────────────────────────────┐
+│      数据访问层              │  │        外部数据源层                 │
+│  backend/database.py        │  │  backend/providers/ 子包            │
+│   - SQLite (本地)           │  │   core: 缓存工厂 (cache_market_     │
+│   - MySQL 8.4 (Docker)      │  │          value), Time/TTL          │
+│   - ? → %s 占位符转换       │  │   quotes: 腾讯/AkShare 股票/ETF     │
+│   - INSERT OR IGNORE →      │  │   market: 指数/行业/市场宽度/涨跌停 │
+│     INSERT IGNORE 兼容      │  │   fund123: 估值/历史/持仓/业绩      │
+│   - 启动建表 + 少量迁移     │  │   eastmoney: 新闻、备用净值         │
+│   表:                       │  │   news: 多渠道快讯聚合              │
+│     holdings                │  │   funds: 场外回退链 (1234567/天天)  │
+│     watchlist_groups/items  │  │                                     │
+│     app_settings            │  │   进程内缓存 (MARKET_CACHE dict)     │
+│     fund_estimate_archives  │  │   ttl: 盘中 15~60s, 闭市至下开盘    │
+│     exchange_price_archives │  │                                     │
+└──────────────────────────────┘  └────────────────────────────────────┘
+                ▲
+                │ 后台线程
+┌───────────────┴──────────────────────────────────────────────────────┐
+│                          调度层 (进程内)                              │
+│   backend/fund_archives.py                                           │
+│     - 每 300s 一轮                                                    │
+│     - 北京时间 15:05 后用 AkShare 交易日历确认交易日                   │
+│     - SQL UNION 合并 holdings/watchlist_items.code                    │
+│     - fund123 估值 (场外) / 腾讯分时 (场内)                           │
+│     - 校验: 所有点属于当天, 最晚 ≥15:00, JSON payload                  │
+│     - 失败 5 分钟重试, 成功不覆盖, 长期保留                            │
+│                                                                        │
+│   refresh_kospi 后台线程 (韩国 KOSPI 普通抓取)                        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+运行时流程（请求 → 响应）：
 
 ```text
 浏览器 / Android WebView
@@ -82,6 +141,15 @@
 ```
 
 `App.vue` 用 activeMenu 切换菜单，没有 Vue Router 或 Vuex。面板放在 `src/components/`，弹窗与悬浮按钮同理；共享格式化逻辑在 `src/utils/format.js`，可拖拽悬浮按钮在 `src/mixins/`。后端每个 HTTP 请求在线程中执行，部分指数并发抓取；归档和韩国指数刷新使用进程内后台线程。
+
+| 层 | 关键实现 |
+| --- | --- |
+| 前端 | Vue 2.7、Vue CLI 5、Element UI 2、ECharts 5、Axios 1；具体安装版本由 package-lock.json 锁定 |
+| 后端 | Python 3.11、标准库 ThreadingHTTPServer；没有 Flask/FastAPI、ORM 或独立任务队列 |
+| 数据适配 | AkShare 1.18.94、urllib，部分回退请求使用系统 curl |
+| 存储 | SQLite / PyMySQL 1.1.1；Docker MySQL 8.4；cryptography 46.0.5 支持数据库认证 |
+| 网关 | Caddy 2.8，HTTPS、静态文件与 API 反向代理 |
+| Android | Capacitor 8.5、JDK 21、Gradle；minSdk 24、compileSdk/targetSdk 36 |
 
 ## 代码结构
 

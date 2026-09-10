@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-dialog title="新增持仓" :visible="visible" width="440px" @closed="resetHoldingForm">
+    <el-dialog title="新增持仓" :visible.sync="dialogVisible" width="440px" @closed="resetHoldingForm">
       <el-form :model="holdingForm" label-width="90px">
         <el-form-item label="名称">
           <el-input v-model.trim="holdingForm.name" placeholder="如：沪深300ETF" />
@@ -68,6 +68,10 @@ export default {
   computed: {
     savingCreate() {
       return this.saving
+    },
+    dialogVisible: {
+      get() { return this.visible },
+      set(value) { this.$emit('update:visible', value) }
     }
   },
   methods: {

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-dialog title="当日收益率走势 · 指数对比" :visible="visible" width="860px" @opened="renderPnlTrendChart">
+    <el-dialog title="当日收益率走势 · 指数对比" :visible.sync="dialogVisible" width="860px" @opened="renderPnlTrendChart">
       <div class="pnl-trend-toolbar">
         <span class="pnl-trend-toolbar-label">对比指数</span>
         <el-checkbox-group v-model="pnlTrendIndexCodes" :disabled="pnlTrendLoading">
@@ -54,6 +54,12 @@ export default {
       pnlTrendError: '',
       pnlTrend: emptyPnlTrend(),
       pnlTrendIndexCodes: DEFAULT_INDEX_CODES.slice()
+    }
+  },
+  computed: {
+    dialogVisible: {
+      get() { return this.visible },
+      set(value) { this.$emit('update:visible', value) }
     }
   },
   watch: {

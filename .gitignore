@@ -6,6 +6,8 @@ android/app/build/
 android/local.properties
 .env.android
 .env.deploy
+.env.local
+backend/.env.local
 backend/fund_pro.db
 __pycache__/
 *.pyc

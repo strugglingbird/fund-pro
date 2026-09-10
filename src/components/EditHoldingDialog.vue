@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-dialog title="修改持仓" :visible="visible" width="420px">
+    <el-dialog title="修改持仓" :visible.sync="dialogVisible" width="420px">
       <el-form :model="editHoldingForm" label-width="90px">
         <el-form-item label="持仓">
           <span>{{ editHoldingForm.name }}（{{ editHoldingForm.code }}）</span>
@@ -38,6 +38,10 @@ export default {
   computed: {
     savingEdit() {
       return this.saving
+    },
+    dialogVisible: {
+      get() { return this.visible },
+      set(value) { this.$emit('update:visible', value) }
     }
   },
   watch: {

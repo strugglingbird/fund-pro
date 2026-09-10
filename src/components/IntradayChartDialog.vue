@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-dialog :title="`${intradayChart.name || '标的'}${intradayChart.asset_type === 'fund' ? ' 基金详情' : ' 当日分时'}`" :visible="visible" width="760px" @opened="renderIntradayChart">
+    <el-dialog :title="`${intradayChart.name || '标的'}${intradayChart.asset_type === 'fund' ? ' 基金详情' : ' 当日分时'}`" :visible.sync="dialogVisible" width="760px" @opened="renderIntradayChart">
       <el-tabs v-if="intradayChart.asset_type === 'fund'" v-model="fundChartTab" class="fund-chart-tabs" @tab-click="handleFundChartTab"><el-tab-pane label="估值走势" name="intraday" /><el-tab-pane label="业绩走势" name="performance" /></el-tabs>
       <div v-if="['fund', 'stock', 'etf'].includes(intradayChart.asset_type) && fundChartTab === 'intraday'" class="chart-meta">
         <span>{{ intradayChart.asset_type === 'fund' ? '估值走势日期' : '价格走势日期' }}</span>
@@ -72,6 +72,10 @@ export default {
       const max = Math.max(...prices)
       const padding = Math.max((max - min) * 0.1, max * 0.002, 0.001)
       return { min: min - padding, max: max + padding }
+    },
+    dialogVisible: {
+      get() { return this.visible },
+      set(value) { this.$emit('update:visible', value) }
     }
   },
   watch: {
