@@ -33,8 +33,8 @@
                      ▼
 ┌──────────────────────────────────────────────┐
 │ 数据源层  backend/providers/                │
-│  - core / quotes / fund123 / eastmoney /     │
-│    market / news / funds                     │
+│  - core / quotes / fund123 / market /        │
+│    news / funds                              │
 │  - 每个子模块负责一个外部源                  │
 │  - 提供缓存装饰（不在 services 层重复缓存）  │
 └──────────────────────────────────────────────┘
@@ -54,7 +54,7 @@
 ### 1.2 时区
 
 - 所有「自然日 / 交易时段 / 当前时间」判断一律用 `providers.core.market_now()`（naive UTC+8）。
-- **注意**：数据库里 `created_at / updated_at / trade_date` 走 SQL CURRENT_TIMESTAMP，存的是 **UTC**。读取后 + 8 小时展示，跨日查询时尤其小心（已在 `app.py._now_iso()` 处统一返回 `+08:00` 字符串）。
+- **注意**：数据库里 `created_at / updated_at / trade_date` 走 SQL CURRENT_TIMESTAMP，存的是 **UTC**。读取后 + 8 小时展示，跨日查询时尤其小心。后端对外返回的 `generated_at` 已由 `format_timestamp()` 统一转换为北京时间字符串。
 - 任何新增时间字段都要在 commit 记录里标注时区。
 
 ### 1.3 数据库双方言
@@ -73,13 +73,15 @@
 
 | 子模块 | 负责 | 禁止 |
 |---|---|---|
-| `core` | 时区、缓存装饰（`cache_market_value`）、通用 HTTP（`http_get` / `http_get_with_curl`）、`to_float`、`market_now`、`format_timestamp`、`FORCE_REFRESH` ContextVar、`KOSPI_CACHE_KEY` 等全局常量 | 写任何具体业务字段 |
-| `quotes` | 个股 / ETF / 跨标的实时报价（腾讯 / 东财个股 / 港股） | 抓板块、基金估值 |
-| `fund123` | fund123.com 的账户内嵌页（含 cookies / csrf / searchFund / matiaria） | 调腾讯、东财 |
-| `eastmoney` | 东财 push2 / push2his 接口、ETF 资金流 | 抓基金估值 |
-| `market` | 大盘指数、涨跌家数、KOSPI、板块榜、当日分时、指数对比 | 抓个股 |
-| `news` | AkShare / 第三方快讯聚合、分组 | 抓行情 |
-| `funds` | 场外基金估值 6 级回退链（fund123 估计 / fundgz / 东财 FundValuationLast / pingzhongdata / fund123 页面文本 / 东财净值披露） | 抓 ETF |
+| `core` | 时区、缓存（`cache_market_value`）、通用 HTTP（`http_get` / `http_post_json`）、`to_float`、`market_now`、`format_timestamp`、`FORCE_REFRESH` ContextVar | 写任何具体业务字段 |
+| `quotes` | 个股 / ETF / 指数实时报价（腾讯 qt.gtimg、交易日历）；美股指数分时已移除 | 抓板块、基金估值 |
+| `fund123` | fund123.com 的账户内嵌页（含 cookies / csrf / searchFund / matiaria） | 调腾讯行情 |
+| `market` | 大盘指数、涨跌家数、板块榜（腾讯 proxy.finance.qq.com） | 抓个股；不得再引入东财 push2 系列 |
+| `news` | AkShare 快讯聚合、分组 | 抓行情 |
+| `funds` | 场外基金估值回退链（fund123 盘中估值 → fund123 页面文本解析） | 抓 ETF |
+
+**已下线的数据源**：东方财富全系（push2 / push2ex / np-listapi / fundgz / pingzhongdata / FundValuationLast）与韩国 KOSPI 已于 2026-09-11 移除，
+相关接口（东财 clist / ulist.np / 涨跌停池）会对本项目请求直接断连，不要再重新引入。
 
 **新增数据源**：在 `providers/` 下开新文件（如 `sina.py`），禁止塞回已有文件。
 **导出**：`providers/__init__.py` 显式 re-export 所有公开符号，对外接口不变。
@@ -92,30 +94,23 @@
 - **`marktet_cache.cached_value` 已删除**：用 `cache_market_value` 工厂模式替代。如果发现旧用法直接替换。
 - **`ContextVar(FORCE_REFRESH)`**：由 `app.py` 在请求作用域内 set/reset；providers 函数读它判断是否绕缓存。**禁止在 providers 自己实现忽略缓存开关**。
 
-### 2.3 fund123 会话（高频复用，已抽工具）
+### 2.3 fund123 会话
 
-```
-build_fund123_opener()                → opener（带 CookieJar）
-open_fund123_home(opener)             → 调 / 并检查 csrf
-fetch_fund123_search(opener, code)    → 拿 productId
-open_fund123_trade(opener, url)       → 通过 cookies 抓估值页或历史页
-fetch_fund123_nav_text(opener, code)  → 净值披露文本 → structured
-```
-
-**禁止** 再有人复制粘贴「`urllib.request.build_opener(cookielib.CookieJar())`」样板。需要新增 fund123 子接口，**先**查 `fund123.py` 是否已有可复用工具。
+`backend/providers/fund123.py` 使用 `core.new_cookie_opener()` 打开会话，从 `/fund` 页提取 CSRF，再调用各 JSON endpoint。新增 fund123 子接口时，优先复用已有的 `open_session()`、`search_fund()`、`fetch_material()`、`resolve_product()` 等工具，禁止复制粘贴 `urllib.request.build_opener` + `cookielib.CookieJar()` 样板。
 
 ### 2.4 路由（app.py）
 
-- 路由表集中在 `backend/app.py` 顶部的 `ROUTES = [(method, regex, handler), ...]`，`do_GET` / `do_POST` / `do_PUT` / `do_DELETE` 都从这个表查，**禁止** 再追加 if/elif 分支。
-- 参数校验统一在 `handlers.py` 或 `app._require_*` 工具内；**返回 400 而不是 500**。
-- JSON 序列化用 `helpers.json_response(payload, status=200)`；**禁止** 手动 `send_response + send_header + wfile.write(json.dumps(...))`。
-- 错误返回固定结构 `{"error": "...", "detail": "..."}`，已在 `app._emit_error` 实现。
-- 后端进程启动时自动起归档线程（已有），新增后台任务沿用同样的 pattern（`threading.Thread(target=..., name=..., daemon=True)`，并在 `fund_archives.run_scheduler` 中注册周期）。
+- 当前 `backend/app.py` 使用 `if parsed.path == ...` 链式分发。新增路由继续沿用该模式，保持与现有代码一致；如未来路由数量显著增长，再统一迁移到 `ROUTES` 表。
+- 参数校验在 `app.py` 的 handler 内直接进行，缺失/非法参数返回 **400**。
+- JSON 序列化使用 `self._send_json(payload)`；错误使用 `self._send_error(message, status=400/500)`。
+- 错误返回固定结构 `{"error": "..."}`（当前未使用 `detail` 字段）。
+- 后端进程启动时自动起归档线程，新增后台任务沿用同样的 pattern（`threading.Thread(target=..., name=..., daemon=True)`）。
 
 ### 2.5 services.py
 
 - `DashboardService` 是唯一的业务编排类。新增业务方法请注入到该类，不要在模块顶层写新类。
-- 重复的「空行情字典」「空市场宽度结构」在 `services.py` 顶部用 `_EMPTY_*` 一次性定义，**禁止** 在 method 内部再 dict 字面量手抄。
+- 「空行情字典」「空市场宽度结构」使用 `services.empty_quote()`、`services.empty_market_breadth()` 工厂函数返回，禁止在 method 内部手抄 dict 字面量。
+- 对价格为 `0` 的边界必须显式用 `is not None` 判断，禁止用 `or` 回退（会把 `0` 当 false 处理）。
 - 所有返回给前端的字典，**必须** 包含 `generated_at`（北京时间字符串），便于前端展示。
 - 暴露给前端的字段集合一旦定型不再删；改字段名走软废弃（同时返回新旧名，等前端切完再删）。
 
@@ -137,6 +132,13 @@ fetch_fund123_nav_text(opener, code)  → 净值披露文本 → structured
 ## 3. 前端规范
 
 ### 3.1 组件拆分（强约束）
+
+前端基线为 Vue 3.5.42 + Element Plus 2.14.5，继续使用 Options API 和 Vue CLI 5。入口使用 `createApp`，组件库设置简体中文；图标从 `@element-plus/icons-vue` 显式导入。不得使用 Vue 2 的 `.sync`、`slot-scope`、`slot` 属性或 `beforeDestroy`。
+
+- 自定义双向绑定使用 `v-model:visible` 等参数，对应 `update:visible` 事件，并声明 `emits`。Element Plus 弹窗内部用 `v-model`。
+- 插槽使用 `#header` / `#footer` / `#default`，日期值格式为 `YYYY-MM-DD`，清空日期范围时处理 `null`。
+- 图表实例使用 `markRaw`，在 `beforeUnmount` 清理图表、监听器及定时器。
+- 升级组件库必须执行 `npm test`（真实组件、模拟 API）和前端 lint/build；生产仍用 Vue CLI，Vite 仅供 Vitest 测试。
 
 `src/App.vue` **只做**：
 - 顶部导航 + 路由切换（`activeMenu`）
@@ -168,7 +170,7 @@ src/components/
 新增面板或弹窗请遵循：
 - 文件名 PascalCase，后缀 `Panel` 或 `Dialog`。
 - props 字段全部走 `props: { ... }`，**禁止** 在组件内部假设父级 ref 的存在。
-- 双向绑定通过 `.sync`（`watchlistCategory`、`selectedWatchGroupId`、`activeMarketTab` 等）。
+- 双向绑定通过 Vue 3 的 `v-model:参数`（`watchlistCategory`、`selectedWatchGroupId`、`activeMarketTab` 等）。
 - 业务方法通过 `this.$emit('xxx', payload)` 抛回父组件，**禁止** 在子组件内 import `dashboard.js` 然后调接口写数据库。
 
 ### 3.2 props / emits 命名
@@ -196,8 +198,11 @@ src/components/
 |---|---|---|
 | `numberFormat.js` | 14 个格式化方法（金额、净值、百分比、持仓字段等） | 任意面板/dialog 渲染金额字段 |
 | `draggableFab.js` | 悬浮按钮的拖拽坐标 + `fabJustDragged` 抑制 click | `FloatingActions.vue` 已使用，将来新增悬浮按钮沿用 |
+| `dialog.js` | `dialogVisible` 计算属性（`v-model:visible` ↔ `update:visible`） | 所有使用 `v-model="dialogVisible"` 的弹窗组件 |
 
-mixin 必须是 `export default { data(), methods() }` 的纯对象，不耦合具体业务字段。组件用 `mixins: [numberFormat, draggableFab]` 注册。
+mixin 必须是 `export default { data(), methods() }` 的纯对象，不耦合具体业务字段。组件用 `mixins: [numberFormat, draggableFab, dialogModel]` 注册。
+
+**禁止** 为只转发 props 的字段写无意义 computed（例如 `newsLoading() { return this.loading }`）。模板直接使用 props。
 
 ### 3.4 utils（`src/utils/format.js`）
 
@@ -212,7 +217,7 @@ mixin 必须是 `export default { data(), methods() }` 的纯对象，不耦合�
 | `global.css` | 主题变量（`--bg`/`--text`/`--danger` 等）、`body` 背景、滚动条 |
 | `workspace.css` | 全部「面板/dialog 共享」的 layout class（`.app-shell`、`.workspace-nav`、`.brand-mark`、`.menu-card`、`.stat-card`、`.holding-table` 等） |
 
-**禁止** 在 `.vue` 的 `<style scoped>` 里重复定义这些类。如确实需要局部样式，请用组件自己的局部 class，并通过 `v-deep` 选择子组件的最深一层 UI（Element UI 内部不破例）。
+**禁止** 在 `.vue` 的 `<style scoped>` 里重复定义这些类。如确实需要局部样式，请用组件自己的局部 class，并通过 `:deep(...)` 选择子组件的最深一层 UI（Element Plus 内部不破例）。
 
 样式修改前先 `grep -r ".your-class" src/styles src/components`，确认它是不是「共享 layout」。
 **禁止** 让组件 `<style scoped>` 与 `workspace.css` 出现同名 class。
@@ -289,6 +294,7 @@ npx --no-install vue-cli-service build
 
 - [ ] `python -m compileall -q backend && python -c "import backend.app; print('ok')"` 通过
 - [ ] `npx vue-cli-service lint --no-fix` 无新增 error
+- [ ] 前端改动：`npm test` 组件回归通过
 - [ ] `npx vue-cli-service build` 成功，`dist/index.html` 与 `dist/js/*.js` 全部产出
 - [ ] curl `GET /api/health` 返回 200；`GET /api/holdings` 与 `GET /api/watchlist` 返回合理结构
 - [ ] 新增的依赖已写入 `requirements.txt` / `package.json`
@@ -299,4 +305,4 @@ npx --no-install vue-cli-service build
 
 ---
 
-_最后修订：2026-09-10。改动本文件请同步告知维护者。_
+_最后修订：2026-09-12。改动本文件请同步告知维护者。_

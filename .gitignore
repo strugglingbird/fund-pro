@@ -11,3 +11,4 @@ backend/.env.local
 backend/fund_pro.db
 __pycache__/
 *.pyc
+.workbuddy/

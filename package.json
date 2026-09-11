@@ -5,29 +5,35 @@
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint",
+    "lint": "vue-cli-service lint --no-fix",
     "android:add": "npx cap add android",
     "build:android": "cross-env VUE_APP_TARGET=capacitor vue-cli-service build --mode android && npx cap sync android",
-    "android:open": "npx cap open android"
+    "android:open": "npx cap open android",
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@element-plus/icons-vue": "^2.3.2",
     "axios": "^1.8.4",
     "core-js": "^3.39.0",
     "echarts": "^5.5.1",
-    "element-ui": "^2.15.14",
-    "vue": "^2.7.16"
+    "element-plus": "2.14.5",
+    "vue": "3.5.42"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@vue/cli-plugin-babel": "^5.0.8",
     "@vue/cli-plugin-eslint": "^5.0.8",
     "@vue/cli-service": "^5.0.8",
+    "@vue/compiler-sfc": "3.5.42",
+    "@vue/test-utils": "^2.4.6",
     "cross-env": "^10.1.0",
     "eslint": "^8.57.1",
     "eslint-plugin-vue": "^9.30.0",
-    "vue-template-compiler": "^2.7.16"
+    "jsdom": "^26.1.0",
+    "vitest": "^5.0.0"
   },
   "browserslist": [
     "> 1%",
