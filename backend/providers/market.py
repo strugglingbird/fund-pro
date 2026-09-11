@@ -1,25 +1,15 @@
-"""Market-wide aggregates: index quotes, KOSPI, breadth and industry sector rankings."""
+"""Market-wide aggregates: index quotes, breadth and industry sector rankings."""
 import json
-import threading
-import time
 import urllib.error
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import redirect_stderr
 from datetime import timedelta
-from io import StringIO
 
 from .core import (
-    FORCE_REFRESH,
-    ak,
     cache_market_value,
-    cache_entry,
-    cached_value,
     http_get,
-    http_get_with_curl,
     market_now,
     market_quote_ttl,
-    store_value,
     to_float,
 )
 
@@ -35,49 +25,26 @@ MARKET_INDEXES = [
     ("标普500", "usINX")
 ]
 
-KOSPI_CACHE_KEY = "kospi-index-page"
-KOSPI_REFRESH_LOCK = threading.Lock()
-KOSPI_REFRESHING = False
+# Tencent's public board feed. `sort_type` only accepts `price`, so the full
+# industry list is fetched once and ordered locally instead of two sorted calls.
+TENCENT_SECTOR_RANK_URL = "https://proxy.finance.qq.com/cgi/cgi-bin/rank/pt/getRank"
+TENCENT_SECTOR_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"}
+TENCENT_SECTOR_QUERY = urllib.parse.urlencode({
+    "board_type": "hy",
+    "sort_type": "price",
+    "direct": "down",
+    "offset": 0,
+    "count": 100
+})
 
 
 def fetch_market_indices():
     """Return cached major-market index quotes without blocking the page on serial I/O."""
-    indices = list(cache_market_value(
+    return list(cache_market_value(
         "market-indices",
         _fetch_market_indices_live,
         market_quote_ttl()
     ) or [])
-    kospi = (cache_market_value(KOSPI_CACHE_KEY, fetch_kospi_index, market_quote_ttl())
-             if FORCE_REFRESH.get() else cached_value(KOSPI_CACHE_KEY))
-    if kospi:
-        indices.append(kospi)
-    if not FORCE_REFRESH.get():
-        _schedule_kospi_refresh()
-    return indices
-
-
-def _schedule_kospi_refresh():
-    """Keep the slower overseas fallback out of the first screen's request path."""
-    global KOSPI_REFRESHING
-    cached = cache_entry(KOSPI_CACHE_KEY)
-    if cached and cached["expires_at"] > time.time():
-        return
-    with KOSPI_REFRESH_LOCK:
-        if KOSPI_REFRESHING:
-            return
-        KOSPI_REFRESHING = True
-
-    def refresh():
-        global KOSPI_REFRESHING
-        try:
-            value = fetch_kospi_index()
-            if value:
-                store_value(KOSPI_CACHE_KEY, value, market_quote_ttl())
-        finally:
-            with KOSPI_REFRESH_LOCK:
-                KOSPI_REFRESHING = False
-
-    threading.Thread(target=refresh, name="kospi-index-refresh", daemon=True).start()
 
 
 def _fetch_market_index_quote(index_spec):
@@ -117,80 +84,43 @@ def _fetch_market_indices_live():
     return indices
 
 
-def fetch_kospi_index():
-    """Return KOSPI, falling back when AkShare's global snapshot is unavailable."""
-    if ak is not None:
-        try:
-            frame = cache_market_value("kospi-index", ak.index_global_spot_em, market_quote_ttl())
-            if frame is not None:
-                rows = frame.to_dict(orient="records")
-                row = next((item for item in rows if str(item.get("代码", "")) == "KS11" or "韩国" in str(item.get("名称", "")) or "KOSPI" in str(item.get("名称", "")).upper()), None)
-                if row:
-                    current = to_float(row.get("最新价"))
-                    previous = to_float(row.get("昨收"))
-                    change = to_float(row.get("涨跌幅"))
-                    if current is not None:
-                        return {"name": "韩国KOSPI", "code": "KS11", "intraday_symbol": "^KS11", "market": "kr", "current_price": current, "previous_close": previous or current, "change_rate": change or 0, "source_label": "AkShare 全球指数"}
-        except Exception:
-            pass
-
-    try:
-        payload = json.loads(http_get(
-            "https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=5d&interval=1d",
-            headers={"User-Agent": "Mozilla/5.0"}
-        ))
-        result = payload["chart"]["result"][0]
-        meta = result.get("meta", {})
-        quote = result.get("indicators", {}).get("quote", [{}])[0]
-        closes = [value for value in quote.get("close", []) if value is not None]
-        current = to_float(meta.get("regularMarketPrice")) or (closes[-1] if closes else None)
-        previous = to_float(meta.get("chartPreviousClose")) or to_float(meta.get("previousClose"))
-        if current is None:
-            return None
-        change = ((current - previous) / previous * 100) if previous else 0
-        return {"name": "韩国KOSPI", "code": "KS11", "intraday_symbol": "^KS11", "market": "kr", "current_price": current, "previous_close": previous or current, "change_rate": change, "source_label": "Yahoo Finance 全球指数"}
-    except (KeyError, IndexError, TypeError, ValueError, urllib.error.URLError):
-        return None
-
-
 def fetch_market_breadth():
-    """Summarise all A-share advancing, declining and limit-move counts."""
+    """Summarise all A-share advancing and declining counts."""
     return cache_market_value("market-breadth", _fetch_market_breadth_live, market_quote_ttl())
 
 
 def _fetch_market_breadth_live():
-    if ak is None:
-        return None
+    """Sum Tencent's live board aggregates into a whole-market advance/decline count.
+
+    Summing the per-board `zgb` counts covers the whole A-share market without
+    downloading a full-market snapshot.
+    """
     try:
-        frame = cache_market_value("akshare-stock-spot", ak.stock_zh_a_spot_em, market_quote_ttl())
-        live_breadth = _build_market_breadth_from_spot(frame)
-        if live_breadth:
-            live_breadth.update({
-                "data_date": market_now().strftime("%Y-%m-%d"),
-                "is_realtime": True,
-                "source_label": "AkShare 全 A 股实时行情"
-            })
-            return live_breadth
-    except Exception:
-        pass
-    return _fetch_previous_market_breadth()
-
-
-def _build_market_breadth_from_spot(frame):
-    if frame is None or "涨跌幅" not in frame:
+        boards = fetch_tencent_sector_board()
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+        boards = []
+    rising = sum(board["rising"] for board in boards)
+    total = sum(board["total"] for board in boards)
+    if not boards or total <= 0:
         return None
-    changes = [to_float(value) for value in frame["涨跌幅"].tolist()]
-    changes = [value for value in changes if value is not None]
-    if not changes:
-        return None
+    # Tencent publishes "rising/total" per board only, so unchanged names stay
+    # counted in `falling`; the response shape is unchanged.
+    falling = max(total - rising, 0)
+
+    data_date = _previous_market_date()
     return {
         "available": True,
-        "rising": sum(value > 0 for value in changes),
-        "falling": sum(value < 0 for value in changes),
-        "flat": sum(value == 0 for value in changes),
-        "limit_up": sum(value >= 9.9 for value in changes),
-        "limit_down": sum(value <= -9.9 for value in changes),
-        "total": len(changes)
+        "rising": rising,
+        "falling": falling,
+        "flat": 0,
+        # No remaining upstream exposes a market-wide limit-move count, so the
+        # fields stay in the payload but are always zero.
+        "limit_up": 0,
+        "limit_down": 0,
+        "total": total,
+        "data_date": f"{data_date[:4]}-{data_date[4:6]}-{data_date[6:]}",
+        "is_realtime": True,
+        "source_label": "腾讯财经行业板块汇总"
     }
 
 
@@ -204,42 +134,50 @@ def _previous_market_date(now=None):
     return candidate.strftime("%Y%m%d")
 
 
-def _fetch_previous_market_breadth():
-    """Use public last-trading-day aggregates when the real-time A-share snapshot is unavailable."""
-    if ak is None:
-        return None
-    data_date = _previous_market_date()
-    try:
-        industry_frame = ak.stock_board_industry_summary_ths()
-        rising = int(industry_frame["上涨家数"].fillna(0).sum())
-        falling = int(industry_frame["下跌家数"].fillna(0).sum())
-        if rising + falling <= 0:
-            return None
-    except Exception:
-        return None
+def fetch_tencent_sector_board():
+    """Return Tencent's industry board snapshot.
 
-    limit_up = 0
-    limit_down = 0
-    try:
-        limit_up = len(ak.stock_zt_pool_em(date=data_date))
-    except Exception:
-        pass
-    try:
-        limit_down = len(ak.stock_zt_pool_dtgc_em(date=data_date))
-    except Exception:
-        pass
-    return {
-        "available": True,
-        "rising": rising,
-        "falling": falling,
-        "flat": 0,
-        "limit_up": limit_up,
-        "limit_down": limit_down,
-        "total": rising + falling,
-        "data_date": f"{data_date[:4]}-{data_date[4:6]}-{data_date[6:]}",
-        "is_realtime": False,
-        "source_label": "AkShare 同花顺行业汇总 / 东方财富涨跌停池"
-    }
+    Each row carries the board's change rate plus `zgb` = "rising/total", which
+    is the same aggregate the previous THS provider exposed, so market breadth
+    can be summed from the boards without an extra full-market snapshot call.
+    """
+    body = http_get(f"{TENCENT_SECTOR_RANK_URL}?{TENCENT_SECTOR_QUERY}", headers=TENCENT_SECTOR_HEADERS)
+    rows = ((json.loads(body).get("data") or {}).get("rank_list") or [])
+    boards = []
+    for row in rows:
+        name = row.get("name")
+        change_rate = to_float(row.get("zdf"))
+        if not name or change_rate is None:
+            continue
+        rising, total = _parse_board_counts(row.get("zgb"))
+        leader = row.get("lzg") or {}
+        boards.append({
+            "name": str(name),
+            "code": row.get("code"),
+            "change_rate": change_rate,
+            "rising": rising,
+            "total": total,
+            "leader_name": leader.get("name"),
+            "leader_change_rate": to_float(leader.get("zdf"))
+        })
+    return boards
+
+
+def _sector_reason(board):
+    """Render the sector blurb shown under each name, using the board's top gainer."""
+    leader = board.get("leader_name")
+    leader_rate = board.get("leader_change_rate")
+    if leader and leader_rate is not None:
+        return dict(board, reason=f"领涨 {leader} {leader_rate:+.2f}%")
+    return dict(board, reason="腾讯财经行业板块实时涨跌幅")
+
+
+def _parse_board_counts(value):
+    """Split Tencent's `zgb` field ("rising/total") into integers."""
+    parts = str(value or "").split("/")
+    rising = to_float(parts[0]) if parts else None
+    total = to_float(parts[1]) if len(parts) > 1 else None
+    return int(rising or 0), int(total or 0)
 
 
 def fetch_sector_rankings():
@@ -251,89 +189,13 @@ def fetch_sector_rankings():
 
 
 def _fetch_sector_rankings_live():
-    """Load live industry-sector gainers and losers through AkShare."""
-    if ak is not None:
-        try:
-            # AkShare displays a tqdm progress bar while paging the THS list.
-            with redirect_stderr(StringIO()):
-                frame = ak.stock_board_industry_summary_ths()
-            columns = list(frame.columns)
-            name_key = next((column for column in columns if "名称" in str(column)), columns[1])
-            change_key = next((column for column in columns if "涨跌幅" in str(column)), columns[2])
-            records = frame.to_dict(orient="records")
-            sectors = []
-            for row in records:
-                name = row.get(name_key)
-                change_rate = row.get(change_key)
-                if not name or change_rate is None:
-                    continue
-                try:
-                    rate = float(change_rate)
-                except (TypeError, ValueError):
-                    continue
-                sectors.append({
-                    "name": str(name),
-                    "change_rate": rate,
-                    "reason": "AkShare 同花顺行业板块实时涨跌幅"
-                })
-            if sectors:
-                return {
-                    "gainers": sorted(sectors, key=lambda item: item["change_rate"], reverse=True)[:10],
-                    "losers": sorted(sectors, key=lambda item: item["change_rate"])[:10],
-                    "source_label": "AkShare 同花顺行业板块实时行情"
-                }
-        except Exception:
-            pass
-
-    return fetch_eastmoney_sector_rankings()
-
-
-def fetch_eastmoney_sector_rankings():
-    """Fall back to Eastmoney's public feed when AkShare is unavailable."""
-    fields = "f12,f14,f2,f3"
-    hosts = ["push2.eastmoney.com", "82.push2.eastmoney.com"]
-
-    def fetch_ranked_sectors(descending):
-        query = urllib.parse.urlencode(
-            {
-                "pn": 1,
-                "pz": 10,
-                "po": 1 if descending else 0,
-                "np": 1,
-                "fltt": 2,
-                "invt": 2,
-                "fid": "f3",
-                "fs": "m:90+t:2",
-                "fields": fields
-            }
-        )
-        rows = []
-        for host in hosts:
-            try:
-                body = http_get_with_curl(f"https://{host}/api/qt/clist/get?{query}")
-                rows = ((json.loads(body).get("data") or {}).get("diff") or [])
-                if rows:
-                    break
-            except (OSError, json.JSONDecodeError):
-                continue
-        return [
-            {
-                "name": row.get("f14") or row.get("f12"),
-                "code": row.get("f12"),
-                "change_rate": float(row.get("f3") or 0),
-                "reason": "东方财富行业板块实时涨跌幅"
-            }
-            for row in rows
-            if row.get("f14") is not None and row.get("f3") is not None
-        ]
-
-    try:
-        gainers = fetch_ranked_sectors(descending=True)
-        losers = fetch_ranked_sectors(descending=False)
-        return {
-            "gainers": gainers,
-            "losers": losers,
-            "source_label": "东方财富行业板块实时行情（回退）"
-        } if gainers and losers else None
-    except Exception:
+    """Rank industry sectors from Tencent's public feed."""
+    boards = fetch_tencent_sector_board()
+    if not boards:
         return None
+    ranked = sorted(boards, key=lambda item: item["change_rate"], reverse=True)
+    return {
+        "gainers": [_sector_reason(board) for board in ranked[:10]],
+        "losers": [_sector_reason(board) for board in ranked[-10:][::-1]],
+        "source_label": "腾讯财经行业板块实时行情"
+    }

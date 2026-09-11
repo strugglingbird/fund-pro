@@ -1,9 +1,12 @@
-"""Financial headline aggregation across the AkShare news channels."""
+"""Financial headline aggregation across the news channels."""
+import logging
 import re
 import threading
 import time
 
 from .core import FORCE_REFRESH, ak, format_timestamp
+
+logger = logging.getLogger(__name__)
 
 IMPORTANT_NEWS_KEYWORDS = (
     "国务院", "证监会", "央行", "财政部", "发改委", "美联储", "降准", "降息", "加息",
@@ -17,7 +20,6 @@ NEWS_CACHE_TTL = 30
 
 NEWS_SOURCE_SPECS = (
     ("财联社电报", "cls", 6),
-    ("东方财富", "em", 4),
     ("新浪财经", "sina", 4),
     ("富途牛牛", "futu", 4),
     ("同花顺", "ths", 4)
@@ -26,29 +28,36 @@ NEWS_SOURCE_SPECS = (
 
 def _source_fetcher(key):
     if key == "cls":
-        return lambda: ak.stock_info_global_cls(symbol="重点")
+        return ak.stock_info_global_cls
     return getattr(ak, f"stock_info_global_{key}")
 
 
+def _collect_source_group(source, key, limit):
+    """Build one news group from its AkShare channel."""
+    return {"source": source, "items": _normalise_news_items(_source_fetcher(key)(), source, limit)}
+
+
 def fetch_financial_news():
-    """Aggregate important real-time financial headlines from AkShare sources."""
+    """Aggregate important real-time financial headlines from the news channels."""
     with NEWS_CACHE_LOCK:
         if not FORCE_REFRESH.get() and NEWS_CACHE["payload"] and NEWS_CACHE["expires_at"] > time.time():
             return NEWS_CACHE["payload"]
 
     groups = []
-    if ak is not None:
-        for source, key, limit in NEWS_SOURCE_SPECS:
-            try:
-                groups.append({
-                    "source": source,
-                    "items": _normalise_news_items(_source_fetcher(key)(), source, limit)
-                })
-            except Exception:
-                continue
-
-    groups = [group for group in groups if group["items"]]
+    for source, key, limit in NEWS_SOURCE_SPECS:
+        try:
+            group = _collect_source_group(source, key, limit)
+        except Exception as exc:
+            # A single dead channel must not hide the others, but silently
+            # dropping every channel is how a missing dependency went unnoticed.
+            logger.warning("快讯渠道 %s 抓取失败: %s: %s", source, type(exc).__name__, exc)
+            continue
+        if group["items"]:
+            groups.append(group)
+        else:
+            logger.warning("快讯渠道 %s 返回空数据", source)
     if not groups:
+        logger.warning("全部快讯渠道均无数据，AkShare 是否可用: %s", ak is not None)
         return None
 
     items = [item for group in groups for item in group["items"]]
@@ -56,7 +65,7 @@ def fetch_financial_news():
         "items": items,
         "groups": groups,
         "total_count": len(items),
-        "source_label": "AkShare 财经快讯聚合",
+        "source_label": "财经快讯聚合",
         "generated_at": format_timestamp()
     }
     with NEWS_CACHE_LOCK:
@@ -68,18 +77,41 @@ def fetch_financial_news():
 def _normalise_news_items(frame, source, limit):
     """Map the different AkShare news DataFrame layouts into one UI schema."""
     columns = list(frame.columns)
-    records = frame.to_dict(orient="records")
-    title_key = next((column for column in columns if "标题" in str(column)), columns[0])
-    content_key = next(
-        (column for column in columns if any(text in str(column) for text in ("内容", "摘要", "快讯"))),
-        columns[1] if len(columns) > 1 else columns[0]
+    return _normalise_news_records(frame.to_dict(orient="records"), columns, source, limit)
+
+
+def _is_metadata_column(column):
+    """Whether a column carries time or link metadata instead of article text."""
+    return any(hint in str(column) for hint in ("时间", "日期", "链接"))
+
+
+def _pick_title_key(columns):
+    """Prefer an explicit title column, then any column that is not time/link metadata."""
+    return next(
+        (column for column in columns if "标题" in str(column)),
+        next((column for column in columns if not _is_metadata_column(column)), columns[0])
     )
+
+
+def _pick_content_key(columns, title_key):
+    """Prefer a summary column, then any unused text column, then the title itself."""
+    return next(
+        (column for column in columns
+         if any(text in str(column) for text in ("内容", "摘要", "快讯"))),
+        next((column for column in columns
+              if column != title_key and not _is_metadata_column(column)), title_key)
+    )
+
+
+def _normalise_news_records(records, columns, source, limit):
+    title_key = _pick_title_key(columns)
+    content_key = _pick_content_key(columns, title_key)
     time_key = next((column for column in columns if "时间" in str(column)), None)
     url_key = next((column for column in columns if "链接" in str(column)), None)
     items = []
     for index, row in enumerate(records):
         title = _clean_news_text(row.get(title_key))
-        summary = _clean_news_text(row.get(content_key))
+        summary = "" if content_key == title_key else _clean_news_text(row.get(content_key))
         if not title:
             title, summary = summary, ""
         if not title:

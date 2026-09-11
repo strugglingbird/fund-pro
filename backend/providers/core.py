@@ -5,9 +5,7 @@ China Standard Time rules stay consistent across sources.
 """
 import http.cookiejar
 import json
-import shutil
 import ssl
-import subprocess
 import threading
 import time
 import urllib.error
@@ -150,23 +148,6 @@ def http_post_json(url, payload, headers=None, opener=None):
     client = opener or build_opener()
     with client.open(request, timeout=10) as response:
         return response.read().decode("utf-8", errors="ignore")
-
-
-def http_get_with_curl(url):
-    """Use the OS curl client for the Eastmoney feed's browser-specific TLS behavior."""
-    curl_binary = shutil.which("curl.exe") or shutil.which("curl")
-    if not curl_binary:
-        raise OSError("curl executable is unavailable")
-    result = subprocess.run(
-        [curl_binary, "-L", "-s", "-A", "Mozilla/5.0", url],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False
-    )
-    if result.returncode != 0 or not result.stdout:
-        raise OSError(result.stderr.strip() or "curl request failed")
-    return result.stdout
 
 
 def to_float(value):

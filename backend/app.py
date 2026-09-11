@@ -4,6 +4,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from database import describe_target
 from services import DashboardService
 from fund_archives import archive_dates, read_archive, start_archive_worker
 from providers import FORCE_REFRESH
@@ -95,7 +96,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/news":
             return self._send_json(service.get_news())
         if parsed.path == "/api/health":
-            return self._send_json({"status": "ok"})
+            return self._send_json({"status": "ok", "database": describe_target()})
         if parsed.path == "/api/instruments/estimate-archive":
             return self._get_estimate_archive(query)
         if parsed.path == "/api/instruments/lookup":
@@ -199,6 +200,12 @@ def run():
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
     httpd = ThreadingHTTPServer((host, port), AppHandler)
+    target = describe_target()
+    if target["engine"] == "mysql":
+        location = f"{target['user']}@{target['host']}:{target['port']}/{target['database']}"
+    else:
+        location = target["path"]
+    print(f"Database backend: {target['engine']} -> {location}")
     print(f"Backend listening on http://{host}:{port}")
     archive_stop = start_archive_worker()
     try:

@@ -27,7 +27,7 @@ def empty_market_breadth():
         "total": 0,
         "data_date": None,
         "is_realtime": False,
-        "source_label": "AkShare 全 A 股实时行情"
+        "source_label": "暂无行情（腾讯行业板块汇总不可用）"
     }
 
 
@@ -120,6 +120,8 @@ class DashboardService:
         asset_type = str(payload.get("asset_type", "")).strip()
         quantity = float(payload.get("quantity", 0) or 0)
         cost_price = float(payload.get("cost_price", 0) or 0)
+        add_to_watchlist = payload.get("add_to_watchlist")
+        add_to_watchlist = True if add_to_watchlist is None else bool(add_to_watchlist)
 
         if not all([name, code, asset_type]) or quantity <= 0 or cost_price <= 0:
             raise ValueError("持仓参数不完整")
@@ -130,6 +132,7 @@ class DashboardService:
                 "INSERT INTO holdings (name, code, asset_type, quantity, cost_price) VALUES (?, ?, ?, ?, ?)",
                 (name, code, asset_type, quantity, cost_price)
             )
+            group_name = self._mirror_into_watchlist(conn, name, code, asset_type) if add_to_watchlist else ""
             conn.commit()
             return {
                 "id": cursor.lastrowid,
@@ -137,10 +140,45 @@ class DashboardService:
                 "code": code,
                 "asset_type": asset_type,
                 "quantity": quantity,
-                "cost_price": cost_price
+                "cost_price": cost_price,
+                "watchlist_added": bool(group_name),
+                "watchlist_group_name": group_name
             }
         finally:
             conn.close()
+
+    @staticmethod
+    def _mirror_into_watchlist(conn, name, code, asset_type):
+        """Mirror a new holding into the default watchlist group of its category.
+
+        Holdings and watchlist items live in separate tables; a freshly created
+        holding should show up in the watchlist without a second manual step.
+        Best effort by design: returns the group name when the item was inserted
+        and "" when the code is already watched or no group of the matching
+        category exists. It never raises, so watchlist problems cannot fail the
+        holding creation.
+        """
+        if asset_type not in {"stock", "etf", "fund"}:
+            return ""
+        # 'fund' entries are valued off-exchange, everything else is on-exchange.
+        category = "fund" if asset_type == "fund" else "exchange"
+        group = conn.execute(
+            "SELECT id, name FROM watchlist_groups WHERE category = ? ORDER BY sort_order, id LIMIT 1",
+            (category,)
+        ).fetchone()
+        if not group:
+            return ""
+        duplicated = conn.execute(
+            "SELECT id FROM watchlist_items WHERE code = ? AND asset_type = ? LIMIT 1",
+            (code, asset_type)
+        ).fetchone()
+        if duplicated:
+            return ""
+        conn.execute(
+            "INSERT INTO watchlist_items (group_id, name, code, asset_type) VALUES (?, ?, ?, ?)",
+            (group["id"], name, code, asset_type)
+        )
+        return group["name"]
 
     def delete_holding(self, holding_id):
         conn = get_connection()
@@ -191,7 +229,7 @@ class DashboardService:
     def list_watchlist(self):
         conn = get_connection()
         try:
-            groups = [dict(row) for row in conn.execute("SELECT id, name, category, sort_order FROM watchlist_groups ORDER BY category, sort_order, id").fetchall()]
+            groups = [dict(row) for row in conn.execute("SELECT id, name, category, sort_order, is_default FROM watchlist_groups ORDER BY category, sort_order, id").fetchall()]
             items = [dict(row) for row in conn.execute("SELECT id, group_id, name, code, asset_type FROM watchlist_items ORDER BY id DESC").fetchall()]
         finally:
             conn.close()
@@ -226,6 +264,12 @@ class DashboardService:
     def delete_watchlist_group(self, group_id):
         conn = get_connection()
         try:
+            group = conn.execute("SELECT is_default FROM watchlist_groups WHERE id = ?", (group_id,)).fetchone()
+            if not group:
+                raise ValueError("分组不存在")
+            # Holdings are mirrored into the default group, so it must always exist.
+            if group["is_default"]:
+                raise ValueError("默认分组不可删除")
             cursor = conn.execute("DELETE FROM watchlist_groups WHERE id = ?", (group_id,))
             if not cursor.rowcount: raise ValueError("分组不存在")
             conn.commit()
@@ -265,6 +309,33 @@ class DashboardService:
             return {"id": cursor.lastrowid, "group_id": group_id, "name": name, "code": code, "asset_type": asset_type}
         finally: conn.close()
 
+    def sync_holdings_to_watchlist(self):
+        """Mirror every existing holding into the default group of its category.
+
+        Backfill for holdings created before the auto-watch behaviour existed;
+        safe to re-run because ``_mirror_into_watchlist`` skips codes that are
+        already watched. Returns per-holding results for reporting.
+        """
+        conn = get_connection()
+        try:
+            holdings = conn.execute("SELECT name, code, asset_type FROM holdings ORDER BY id").fetchall()
+            added, skipped = [], []
+            for holding in holdings:
+                group_name = self._mirror_into_watchlist(
+                    conn, holding["name"], holding["code"], holding["asset_type"]
+                )
+                entry = {
+                    "name": holding["name"],
+                    "code": holding["code"],
+                    "asset_type": holding["asset_type"],
+                    "group": group_name
+                }
+                (added if group_name else skipped).append(entry)
+            conn.commit()
+            return {"total": len(holdings), "added": added, "skipped": skipped}
+        finally:
+            conn.close()
+
     def delete_watchlist_item(self, item_id):
         conn = get_connection()
         try:
@@ -282,7 +353,8 @@ class DashboardService:
         quantity = float(holding["quantity"])
         cost_price = float(holding["cost_price"])
         is_fund = holding["asset_type"] == "fund"
-        previous_close = float(market.get("previous_close") or cost_price)
+        raw_previous_close = market.get("previous_close")
+        previous_close = float(raw_previous_close) if raw_previous_close is not None else cost_price
 
         quoted_current_price = market.get("current_price")
         current_price = float(quoted_current_price) if quoted_current_price is not None else None
@@ -295,7 +367,7 @@ class DashboardService:
             current_price = current_price if current_price is not None else previous_close
 
         estimated_change_rate = market.get("estimated_change_rate")
-        if is_fund and estimated_price is None and estimated_change_rate is not None and previous_close:
+        if is_fund and estimated_price is None and estimated_change_rate is not None and previous_close != 0:
             estimated_price = round(previous_close * (1 + float(estimated_change_rate) / 100), 4)
 
         market_value = quantity * (current_price or estimated_price or previous_close)
@@ -512,7 +584,7 @@ class DashboardService:
             "items": [],
             "groups": [],
             "total_count": 0,
-            "source_label": "AkShare 财经快讯",
+            "source_label": "财经快讯聚合",
             "generated_at": format_timestamp()
         }
 

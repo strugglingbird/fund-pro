@@ -21,7 +21,6 @@ from .core import (
     format_timestamp,
     fund_valuation_ttl,
     http_get,
-    http_get_with_curl,
     http_post_json,
     is_before_market_open,
     market_now,
@@ -31,11 +30,6 @@ from .core import (
     store_value,
     to_float,
     to_ratio_percent,
-)
-from .eastmoney import (
-    fetch_eastmoney_fund_profile,
-    fetch_eastmoney_fundgz_valuation,
-    fetch_eastmoney_valuation,
 )
 from .fund123 import (
     fetch_fund123_holdings,
@@ -54,8 +48,6 @@ from .fund123 import (
 from .funds import fetch_fund_valuation, fetch_intraday_chart, lookup_instrument
 from .market import (
     MARKET_INDEXES,
-    fetch_eastmoney_sector_rankings,
-    fetch_kospi_index,
     fetch_market_breadth,
     fetch_market_indices,
     fetch_sector_rankings,
@@ -65,7 +57,7 @@ from .quotes import (
     fetch_quote_by_code,
     fetch_tencent_intraday_chart,
     fetch_tencent_watch_quote_batch,
-    fetch_yahoo_intraday_chart,
+    fetch_trading_days,
     tencent_symbol,
 )
 
@@ -81,10 +73,6 @@ __all__ = [
     "cache_entry",
     "cache_market_value",
     "cached_value",
-    "fetch_eastmoney_fund_profile",
-    "fetch_eastmoney_fundgz_valuation",
-    "fetch_eastmoney_sector_rankings",
-    "fetch_eastmoney_valuation",
     "fetch_financial_news",
     "fetch_fund_valuation",
     "fetch_fund123_holdings",
@@ -98,18 +86,16 @@ __all__ = [
     "fetch_fund123_previous_nav",
     "fetch_fund123_valuation",
     "fetch_intraday_chart",
-    "fetch_kospi_index",
     "fetch_market_breadth",
     "fetch_market_indices",
     "fetch_quote_by_code",
     "fetch_sector_rankings",
     "fetch_tencent_intraday_chart",
     "fetch_tencent_watch_quote_batch",
-    "fetch_yahoo_intraday_chart",
+    "fetch_trading_days",
     "format_timestamp",
     "fund_valuation_ttl",
     "http_get",
-    "http_get_with_curl",
     "http_post_json",
     "is_before_market_open",
     "lookup_instrument",

@@ -126,13 +126,21 @@ def fetch_fund123_intraday_valuation(code):
         nav_date = parse_fund123_nav_date(material)
         if not history_nav and not nav_match:
             return None
-        previous_close = round(history_nav or float(nav_match.group("nav")), 4)
-        # fund123's matiaria endpoint publishes the latest confirmed NAV in
-        # netValue. It is an actual quote only when its publication date is today.
-        current_price = (
-            round(float(nav_match.group("nav")), 4)
-            if nav_match and nav_date == market_now().strftime("%Y%m%d") else None
-        )
+        latest_nav = round(float(nav_match.group("nav")), 4) if nav_match else None
+        # history_nav is the reference NAV the intraday estimate is measured
+        # against; fall back to the newest NAV only when that lookup failed.
+        previous_close = round(history_nav if history_nav is not None else (latest_nav or 0), 4)
+        # fund123's matiaria endpoint publishes the newest confirmed NAV. It counts
+        # as a current price once it is newer than the reference NAV used as 昨收:
+        # published for today, or the last session's NAV while the market is closed
+        # (weekend / holiday). While it still equals the reference NAV the session
+        # has not settled, so the UI keeps showing the intraday estimate instead.
+        current_price = None
+        if latest_nav is not None:
+            if nav_date == market_now().strftime("%Y%m%d"):
+                current_price = latest_nav
+            elif history_nav is not None and latest_nav != previous_close:
+                current_price = latest_nav
         daily_change_rate = (
             (current_price - previous_close) / previous_close * 100
             if current_price is not None and previous_close else None
@@ -157,7 +165,7 @@ def fetch_fund123_intraday_valuation(code):
         if not estimates:
             return None
         latest = estimates[-1]
-        estimated_change_rate = float(latest.get("forecastGrowth") or 0) * 100
+        estimated_change_rate = to_ratio_percent(latest.get("forecastGrowth")) or 0
         return {
             "name": fund_info.get("fundName") or code,
             "current_price": current_price,
@@ -187,7 +195,8 @@ def fetch_fund123_intraday_chart(code):
         nav_match = NET_VALUE_PATTERN.search(material or "")
         if not history_nav and not nav_match:
             return None
-        previous_close = round(history_nav or float(nav_match.group("nav")), 4)
+        latest_nav = round(float(nav_match.group("nav")), 4) if nav_match else None
+        previous_close = round(history_nav if history_nav is not None else (latest_nav or 0), 4)
         today = market_now().strftime("%Y-%m-%d")
         tomorrow = (market_now() + timedelta(days=1)).strftime("%Y-%m-%d")
         estimate_body = http_post_json(
@@ -199,8 +208,8 @@ def fetch_fund123_intraday_chart(code):
         points = []
         estimates.sort(key=lambda item: float(item.get("time") or 0))
         for item in estimates:
-            rate = float(item.get("forecastGrowth") or 0)
-            price = round(previous_close * (1 + rate), 4)
+            rate = to_ratio_percent(item.get("forecastGrowth")) or 0
+            price = round(previous_close * (1 + rate / 100), 4)
             points.append({
                 "time": datetime.fromtimestamp(float(item.get("time") or 0) / 1000, CHINA_TIMEZONE).strftime("%H:%M"),
                 "timestamp": float(item.get("time") or 0),
@@ -278,7 +287,9 @@ def fetch_fund123_previous_nav(product_id, csrf, opener):
     cache_key = f"fund-previous-nav:{product_id}"
     if is_before_market_open() and not FORCE_REFRESH.get():
         # Before the next session opens, reuse the last confirmed closing NAV.
-        return cache_market_value(cache_key)
+        cached = cache_market_value(cache_key)
+        if cached is not None:
+            return cached
     return cache_market_value(
         cache_key,
         lambda: select_fund123_previous_nav(
@@ -492,9 +503,9 @@ def fetch_fund123_valuation(url_template, code):
         "current_price": None,
         "estimated_price": round(float(payload.get("price") or 0), 4),
         "previous_close": round(float(payload.get("nav") or payload.get("previous_close") or 0), 4),
-        "change_rate": float(payload.get("change_rate") or 0),
+        "change_rate": to_ratio_percent(payload.get("change_rate")) or 0,
         "daily_change_rate": None,
-        "estimated_change_rate": float(payload.get("change_rate") or 0),
+        "estimated_change_rate": to_ratio_percent(payload.get("change_rate")) or 0,
         "time": payload.get("time") or "",
         "source_label": "fund123 自定义抓取"
     }
@@ -524,13 +535,14 @@ def extract_fund_value_from_text(body, source_label):
     name_match = re.search(r'"(?:SHORTNAME|name)"\s*[:=]\s*"(?P<name>[^"]+)"', body)
     if not gsz_match:
         return None
+    change_rate = to_ratio_percent(rate_match.group("rate")) if rate_match else 0
     return {
         "name": name_match.group("name") if name_match else "场外基金",
         "current_price": float(gsz_match.group("price")),
         "previous_close": float(nav_match.group("nav")) if nav_match else 0,
-        "change_rate": float(rate_match.group("rate")) if rate_match else 0,
+        "change_rate": change_rate,
         "daily_change_rate": None,
-        "estimated_change_rate": float(rate_match.group("rate")) if rate_match else 0,
+        "estimated_change_rate": change_rate,
         "time": market_now().strftime("%Y-%m-%d %H:%M"),
         "source_label": source_label
     }

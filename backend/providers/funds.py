@@ -7,12 +7,13 @@ from .core import (
     market_now,
     seconds_until_next_market_open,
 )
-from . import eastmoney
 from . import fund123
-from .quotes import fetch_quote_by_code, fetch_tencent_intraday_chart, fetch_yahoo_intraday_chart
+from .quotes import fetch_quote_by_code, fetch_tencent_intraday_chart
 
-# Tencent has no US index coverage, so those symbols are routed to Yahoo.
-YAHOO_INDEX_SYMBOLS = {"usDJI": "^DJI", "usIXIC": "^IXIC", "usINX": "^GSPC"}
+# US index intraday used to fall back to Yahoo Finance, which now returns HTTP 403.
+# Tencent only publishes a single snapshot point for US symbols, so those codes
+# are treated as unavailable and the UI shows the empty-state message.
+UNSUPPORTED_INTRADAY_SYMBOLS = {"usDJI", "usIXIC", "usINX"}
 
 
 def fetch_fund_valuation(code):
@@ -46,9 +47,6 @@ def _fetch_fund_valuation_live(normalized):
 
     return (
         fund123.fetch_fund123_intraday_valuation(normalized)
-        or eastmoney.fetch_eastmoney_fundgz_valuation(normalized)
-        or eastmoney.fetch_eastmoney_valuation(normalized)
-        or eastmoney.fetch_eastmoney_fund_profile(normalized)
         or fund123.fetch_fund123_page_guess(normalized)
     )
 
@@ -58,8 +56,8 @@ def fetch_intraday_chart(asset_type, code):
         return fund123.fetch_fund123_intraday_chart(code)
     if asset_type == "index":
         normalized = str(code).strip()
-        if normalized.startswith("^") or normalized in YAHOO_INDEX_SYMBOLS:
-            return fetch_yahoo_intraday_chart(YAHOO_INDEX_SYMBOLS.get(normalized, normalized))
+        if normalized in UNSUPPORTED_INTRADAY_SYMBOLS:
+            return None
         return fetch_tencent_intraday_chart(normalized, is_index=True)
     return fetch_tencent_intraday_chart(code)
 

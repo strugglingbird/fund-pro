@@ -5,22 +5,40 @@ import threading
 from datetime import datetime
 
 from database import DATABASE_ENGINE, get_connection
-from providers import CHINA_TIMEZONE, fetch_fund123_intraday_chart, fetch_tencent_intraday_chart, market_now, ak
+from providers import (
+    CHINA_TIMEZONE,
+    fetch_fund123_intraday_chart,
+    fetch_tencent_intraday_chart,
+    fetch_trading_days,
+    market_now,
+)
 
 logger = logging.getLogger(__name__)
 _calendar_day = None
 _calendar_is_open = False
+_calendar_days = set()
+
+# ~640 sessions reach back roughly three years, which covers any date the
+# archiver can reasonably ask about.
+CALENDAR_SESSION_COUNT = 640
+
+
+def _load_trading_calendar():
+    """Collect exchange sessions from the SSE composite index daily K-line."""
+    days = set(fetch_trading_days(CALENDAR_SESSION_COUNT))
+    if not days:
+        raise RuntimeError('Trading calendar is unavailable')
+    return days
 
 
 def is_trading_day(day):
-    global _calendar_day, _calendar_is_open
+    global _calendar_day, _calendar_is_open, _calendar_days
     if _calendar_day != day:
-        if ak is None:
-            raise RuntimeError('AkShare is required to verify the trading calendar')
-        dates = {str(d)[:10] for d in ak.tool_trade_date_hist_sina()['trade_date']}
-        if not dates or day > max(dates):
+        if not _calendar_days:
+            _calendar_days = _load_trading_calendar()
+        if not _calendar_days or day > max(_calendar_days):
             raise RuntimeError('Trading calendar does not cover the requested date')
-        _calendar_day, _calendar_is_open = day, day in dates
+        _calendar_day, _calendar_is_open = day, day in _calendar_days
     return _calendar_is_open
 
 

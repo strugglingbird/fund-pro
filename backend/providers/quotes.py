@@ -1,8 +1,7 @@
-"""On-exchange quotes and intraday curves from Tencent, plus Yahoo for overseas symbols."""
+"""On-exchange quotes and intraday curves from Tencent."""
 import json
 import re
 import urllib.error
-import urllib.parse
 from datetime import datetime
 
 from .core import (
@@ -138,7 +137,7 @@ def fetch_tencent_intraday_chart(code, is_index=False):
             "name": details[1] if len(details) > 4 else normalized,
             "code": normalized,
             "trade_date": trade_date,
-            "previous_close": float(details[4]) if len(details) > 4 else None,
+            "previous_close": to_float(details[4]) if len(details) > 4 else None,
             "points": points,
             "source_label": "腾讯分时行情"
         } if points else None
@@ -146,29 +145,18 @@ def fetch_tencent_intraday_chart(code, is_index=False):
         return None
 
 
-def fetch_yahoo_intraday_chart(symbol):
-    """Use Yahoo's public minute feed for indexes unavailable from Tencent."""
-    try:
-        encoded_symbol = urllib.parse.quote(str(symbol).strip(), safe="")
-        payload = json.loads(http_get(
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range=1d&interval=5m",
-            headers={"User-Agent": "Mozilla/5.0"}
-        ))
-        result = payload["chart"]["result"][0]
-        meta = result.get("meta", {})
-        quote = result.get("indicators", {}).get("quote", [{}])[0]
-        points = [
-            {"time": datetime.fromtimestamp(timestamp).strftime("%H:%M"), "price": float(price)}
-            for timestamp, price in zip(result.get("timestamp", []), quote.get("close", []))
-            if price is not None
-        ]
-        previous_close = to_float(meta.get("chartPreviousClose")) or to_float(meta.get("previousClose"))
-        return {
-            "name": meta.get("longName") or meta.get("shortName") or "指数",
-            "code": str(symbol).lstrip("^"),
-            "previous_close": previous_close,
-            "points": points,
-            "source_label": "Yahoo Finance 分时行情"
-        } if points else None
-    except (KeyError, IndexError, TypeError, ValueError, urllib.error.URLError, json.JSONDecodeError):
-        return None
+def fetch_trading_days(count=640):
+    """List recent SSE trading days (YYYY-MM-DD) from the index daily K-line.
+
+    Every published daily candle is an exchange session, so the K-line dates are
+    exactly the trading calendar and need no separate calendar endpoint.
+    """
+    payload = json.loads(http_get(
+        f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000001,day,,,{count},qfq"
+    ))
+    node = (payload.get("data") or {}).get("sh000001") or {}
+    # Tencent returns the plain series under `day` when no adjustment is applied.
+    rows = node.get("qfqday") or node.get("day") or []
+    return [str(row[0]) for row in rows if row and row[0]]
+
+
