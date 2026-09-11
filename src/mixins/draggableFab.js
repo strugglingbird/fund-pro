@@ -20,7 +20,7 @@ export default {
       drag: { ...IDLE_DRAG }
     }
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.stopDrag()
   },
   methods: {

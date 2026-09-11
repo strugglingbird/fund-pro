@@ -1,13 +1,31 @@
 <template>
   <div class="app-shell">
     <header class="workspace-nav">
-      <div class="brand-mark"><span>量化工作台</span><small>Quant Workbench</small></div>
-      <el-menu :default-active="activeMenu" mode="horizontal" class="workspace-menu" @select="onMenuSelect">
-        <el-menu-item index="home">首页</el-menu-item>
-        <el-menu-item index="holdings">持仓收益</el-menu-item>
-        <el-menu-item index="watchlist">自选</el-menu-item>
-        <el-menu-item index="market">市场指数</el-menu-item>
-        <el-menu-item index="news">消息快讯</el-menu-item>
+      <div class="brand-mark">
+        <span>量化工作台</span><small>Quant Workbench</small>
+      </div>
+      <el-menu
+        :default-active="activeMenu"
+        mode="horizontal"
+        :ellipsis="false"
+        class="workspace-menu"
+        @select="onMenuSelect"
+      >
+        <el-menu-item index="home">
+          首页
+        </el-menu-item>
+        <el-menu-item index="holdings">
+          持仓收益
+        </el-menu-item>
+        <el-menu-item index="watchlist">
+          自选
+        </el-menu-item>
+        <el-menu-item index="market">
+          市场指数
+        </el-menu-item>
+        <el-menu-item index="news">
+          消息快讯
+        </el-menu-item>
       </el-menu>
     </header>
 
@@ -44,11 +62,11 @@
     />
     <watchlist-panel
       v-else-if="activeMenu === 'watchlist'"
+      v-model:category="watchlistCategory"
+      v-model:selected-group-id="selectedWatchGroupId"
       :watchlist="watchlist"
       :loading="watchlistLoading"
       :loaded="watchlistLoaded"
-      :category.sync="watchlistCategory"
-      :selected-group-id.sync="selectedWatchGroupId"
       @reload="loadWatchlist"
       @ensure-group="ensureWatchGroup"
       @create-group="createWatchGroup"
@@ -60,12 +78,12 @@
     />
     <market-panel
       v-else-if="activeMenu === 'market'"
+      v-model:tab="activeMarketTab"
       :market-indices="marketIndices"
       :loading="marketIndicesLoading"
       :updated-at="indicesUpdatedAt"
       :dashboard="dashboard"
       :initial-loading="isDashboardInitialLoading"
-      :tab.sync="activeMarketTab"
       @reload="loadMarketIndices"
       @open-chart="openIndexIntradayChart"
     />
@@ -77,25 +95,25 @@
     />
 
     <intraday-chart-dialog
-      :visible.sync="intradayDialogVisible"
+      v-model:visible="intradayDialogVisible"
       :instrument="intradayInstrument"
       @add-watch="openFundHoldingWatch"
     />
-    <pnl-trend-dialog :visible.sync="pnlTrendDialogVisible" />
+    <pnl-trend-dialog v-model:visible="pnlTrendDialogVisible" />
 
     <create-holding-dialog
-      :visible.sync="createDialogVisible"
+      v-model:visible="createDialogVisible"
       :saving="savingCreate"
       @submit="submitHolding"
     />
     <edit-holding-dialog
-      :visible.sync="editDialogVisible"
+      v-model:visible="editDialogVisible"
       :holding="editTarget"
       :saving="savingEdit"
       @submit="submitHoldingEdit"
     />
     <watch-item-dialog
-      :visible.sync="watchItemDialogVisible"
+      v-model:visible="watchItemDialogVisible"
       :category="watchlistCategory"
       :groups="currentWatchGroups"
       :selected-group-id="selectedWatchGroupId"
@@ -103,7 +121,7 @@
       @submit="saveWatchItem"
     />
     <fund-holding-watch-dialog
-      :visible.sync="fundHoldingWatchDialogVisible"
+      v-model:visible="fundHoldingWatchDialogVisible"
       :stock="fundHoldingToWatch"
       :groups="exchangeWatchGroups"
       :saving="fundHoldingWatchSaving"
@@ -247,7 +265,7 @@ export default {
   mounted() {
     this.newsRefreshTimer = window.setInterval(() => this.autoRefreshData(), REFRESH_INTERVAL_MS)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.clearInterval(this.newsRefreshTimer)
   },
   methods: {
@@ -440,10 +458,15 @@ export default {
     async submitHolding(payload) {
       this.savingCreate = true
       try {
-        await saveHolding(payload)
+        const { data } = await saveHolding(payload)
         this.createDialogVisible = false
-        this.$message.success('持仓已保存')
+        this.$message.success(data && data.watchlist_added
+          ? `持仓已保存，已自动加入自选「${data.watchlist_group_name}」`
+          : '持仓已保存')
         await this.bootstrap()
+        // The new holding may have been mirrored into the watchlist, refresh it
+        // only when it is already loaded so the menu stays in sync.
+        if (this.watchlistLoaded) await this.loadWatchlist(false, true)
       } catch (error) {
         this.$message.error(error.response?.data?.error || '新增持仓失败')
       } finally {

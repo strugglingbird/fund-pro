@@ -1,18 +1,215 @@
 <template>
   <div>
     <section>
-      <div class="page-heading"><div><h2>自选</h2><p>分组跟踪场内股票、ETF 与场外基金行情。</p></div><div class="panel-actions"><span class="panel-tip">{{ watchlist.generated_at || '--' }} 更新</span><el-button size="small" :loading="watchlistLoading" @click="loadWatchlist(true)">刷新行情</el-button></div></div>
-      <el-card shadow="never" class="panel-card"><el-tabs v-model="watchlistCategory" @tab-click="ensureWatchGroup"><el-tab-pane label="场内基金与股票" name="exchange" /><el-tab-pane label="场外基金" name="fund" /></el-tabs><div class="watch-toolbar"><div class="watch-groups"><el-button v-for="group in watchGroups" :key="group.id" size="small" :type="selectedWatchGroupId === group.id ? 'primary' : 'default'" @click="selectedWatchGroupId = group.id">{{ group.name }}</el-button><el-button size="small" icon="el-icon-plus" @click="createWatchGroup">新建分组</el-button></div><div class="panel-actions"><el-button size="small" :disabled="!selectedWatchGroupId" @click="openWatchItemDialog">添加自选</el-button><el-button v-if="selectedWatchGroup" type="text" class="danger-text" @click="deleteWatchGroup">删除分组</el-button></div></div><div v-if="watchlistLoading && !watchlistLoaded" class="detail-skeleton"><div class="skeleton-table"><div class="skeleton-table-row skeleton-table-head"><i /><i /><i /><i /></div><div v-for="row in 6" :key="row" class="skeleton-table-row"><i /><i /><i /><i /></div></div></div><div v-else-if="!selectedWatchGroupId || !watchItems.length" class="empty-state">当前分组暂无自选标的，点击“添加自选”开始跟踪。</div><el-table v-else :data="watchItems" stripe><el-table-column prop="name" label="名称" min-width="170"><template slot-scope="{ row }"><el-button type="text" class="position-link" @click="openIntradayChart(row)">{{ row.name }}</el-button></template></el-table-column><el-table-column prop="code" label="代码" width="110" /><el-table-column prop="asset_type" label="类型" width="110"><template slot-scope="{ row }"><el-tag size="mini" :type="assetTypeTag(row.asset_type)">{{ assetTypeLabel(row.asset_type) }}</el-tag></template></el-table-column><el-table-column prop="previous_close" label="昨日收盘价" width="120"><template slot-scope="{ row }">{{ formatNetValue(row.previous_close, row.asset_type) }}</template></el-table-column><el-table-column prop="current_price" label="现价" width="110"><template slot-scope="{ row }">{{ formatNetValue(row.current_price, row.asset_type) }}</template></el-table-column><el-table-column v-if="watchlistCategory === 'fund'" prop="estimated_price" label="估值" width="110"><template slot-scope="{ row }">{{ formatNetValue(row.estimated_price, row.asset_type) }}</template></el-table-column><el-table-column prop="daily_change_rate" label="当日涨幅" width="110"><template slot-scope="{ row }"><span :class="profitClass(row.daily_change_rate)">{{ formatNullablePercent(row.daily_change_rate) }}</span></template></el-table-column><el-table-column v-if="watchlistCategory === 'fund'" prop="estimated_change_rate" label="预估涨幅" width="110"><template slot-scope="{ row }"><span :class="profitClass(row.estimated_change_rate)">{{ formatNullablePercent(row.estimated_change_rate) }}</span></template></el-table-column><el-table-column prop="source_label" label="数据源" min-width="130" /><el-table-column label="操作" width="75" fixed="right"><template slot-scope="{ row }"><el-button type="text" class="danger-text" @click="deleteWatchItem(row.id)">删除</el-button></template></el-table-column></el-table></el-card>
-      <div v-if="selectedWatchGroup" class="watch-order-actions"><span>当前分组：{{ selectedWatchGroup.name }}</span><el-button size="mini" :disabled="watchGroups[0] && selectedWatchGroup.id === watchGroups[0].id" @click="moveCurrentWatchGroup('up')">上移</el-button><el-button size="mini" :disabled="watchGroups[watchGroups.length - 1] && selectedWatchGroup.id === watchGroups[watchGroups.length - 1].id" @click="moveCurrentWatchGroup('down')">下移</el-button></div>
+      <div class="page-heading">
+        <div><h2>自选</h2><p>分组跟踪场内股票、ETF 与场外基金行情。</p></div><div class="panel-actions">
+          <span class="panel-tip">{{ watchlist.generated_at || '--' }} 更新</span><el-button
+            size="small"
+            :loading="loading"
+            @click="loadWatchlist(true)"
+          >
+            刷新行情
+          </el-button>
+        </div>
+      </div>
+      <el-card
+        shadow="never"
+        class="panel-card"
+      >
+        <el-tabs
+          v-model="watchlistCategory"
+          @tab-click="ensureWatchGroup"
+        >
+          <el-tab-pane
+            label="场内基金与股票"
+            name="exchange"
+          /><el-tab-pane
+            label="场外基金"
+            name="fund"
+          />
+        </el-tabs><div class="watch-toolbar">
+          <div class="watch-groups">
+            <el-button
+              v-for="group in watchGroups"
+              :key="group.id"
+              size="small"
+              :type="selectedWatchGroupId === group.id ? 'primary' : 'default'"
+              @click="selectedWatchGroupId = group.id"
+            >
+              {{ group.name }}
+            </el-button><el-button
+              size="small"
+              @click="createWatchGroup"
+            >
+              <el-icon><Plus /></el-icon><span>新建分组</span>
+            </el-button>
+          </div><div class="panel-actions">
+            <el-button
+              size="small"
+              :disabled="!selectedWatchGroupId"
+              @click="openWatchItemDialog"
+            >
+              添加自选
+            </el-button>            <el-button
+              v-if="selectedWatchGroup && !selectedWatchGroup.is_default"
+              type="primary"
+              link
+              class="danger-text"
+              @click="deleteWatchGroup"
+            >
+              删除分组
+            </el-button>
+          </div>
+        </div><div
+          v-if="loading && !loaded"
+          class="detail-skeleton"
+        >
+          <div class="skeleton-table">
+            <div class="skeleton-table-row skeleton-table-head">
+              <i /><i /><i /><i />
+            </div><div
+              v-for="row in 6"
+              :key="row"
+              class="skeleton-table-row"
+            >
+              <i /><i /><i /><i />
+            </div>
+          </div>
+        </div><div
+          v-else-if="!selectedWatchGroupId || !watchItems.length"
+          class="empty-state"
+        >
+          当前分组暂无自选标的，点击“添加自选”开始跟踪。
+        </div><el-table
+          v-else
+          :data="watchItems"
+          stripe
+        >
+          <el-table-column
+            prop="name"
+            label="名称"
+            min-width="170"
+          >
+            <template #default="{ row }">
+              <el-button
+                type="primary"
+                link
+                class="position-link"
+                @click="openIntradayChart(row)"
+              >
+                {{ row.name }}
+              </el-button>
+            </template>
+          </el-table-column><el-table-column
+            prop="code"
+            label="代码"
+            width="110"
+          /><el-table-column
+            prop="asset_type"
+            label="类型"
+            width="110"
+          >
+            <template #default="{ row }">
+              <el-tag
+                size="small"
+                :type="assetTypeTag(row.asset_type)"
+              >
+                {{ assetTypeLabel(row.asset_type) }}
+              </el-tag>
+            </template>
+          </el-table-column><el-table-column
+            prop="previous_close"
+            label="昨日收盘价"
+            width="120"
+          >
+            <template #default="{ row }">
+              {{ formatNetValue(row.previous_close, row.asset_type) }}
+            </template>
+          </el-table-column><el-table-column
+            prop="current_price"
+            label="现价"
+            width="110"
+          >
+            <template #default="{ row }">
+              {{ formatNetValue(row.current_price, row.asset_type) }}
+            </template>
+          </el-table-column><el-table-column
+            v-if="watchlistCategory === 'fund'"
+            prop="estimated_price"
+            label="估值"
+            width="110"
+          >
+            <template #default="{ row }">
+              {{ formatNetValue(row.estimated_price, row.asset_type) }}
+            </template>
+          </el-table-column><el-table-column
+            prop="daily_change_rate"
+            label="当日涨幅"
+            width="110"
+          >
+            <template #default="{ row }">
+              <span :class="profitClass(row.daily_change_rate)">{{ formatNullablePercent(row.daily_change_rate) }}</span>
+            </template>
+          </el-table-column><el-table-column
+            v-if="watchlistCategory === 'fund'"
+            prop="estimated_change_rate"
+            label="预估涨幅"
+            width="110"
+          >
+            <template #default="{ row }">
+              <span :class="profitClass(row.estimated_change_rate)">{{ formatNullablePercent(row.estimated_change_rate) }}</span>
+            </template>
+          </el-table-column><el-table-column
+            prop="source_label"
+            label="数据源"
+            min-width="130"
+          /><el-table-column
+            label="操作"
+            width="75"
+            fixed="right"
+          >
+            <template #default="{ row }">
+              <el-button
+                type="primary"
+                link
+                class="danger-text"
+                @click="deleteWatchItem(row.id)"
+              >
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+      <div
+        v-if="selectedWatchGroup"
+        class="watch-order-actions"
+      >
+        <span>当前分组：{{ selectedWatchGroup.name }}</span><el-button
+          size="small"
+          :disabled="watchGroups[0] && selectedWatchGroup.id === watchGroups[0].id"
+          @click="moveCurrentWatchGroup('up')"
+        >
+          上移
+        </el-button><el-button
+          size="small"
+          :disabled="watchGroups[watchGroups.length - 1] && selectedWatchGroup.id === watchGroups[watchGroups.length - 1].id"
+          @click="moveCurrentWatchGroup('down')"
+        >
+          下移
+        </el-button>
+      </div>
     </section>
   </div>
 </template>
 
 <script>
+import { Plus } from '@element-plus/icons-vue'
 import { assetTypeLabel, assetTypeTag, formatNetValue, formatNullablePercent, profitClass } from '../utils/format'
 
 export default {
   name: 'WatchlistPanel',
+  components: { Plus },
   props: {
     watchlist: { type: Object, required: true },
     loading: Boolean,
@@ -20,6 +217,7 @@ export default {
     category: { type: String, default: 'exchange' },
     selectedGroupId: { type: Number, default: null }
   },
+  emits: ["update:category","update:selectedGroupId","reload","ensure-group","create-group","delete-group","move-group","add-item","delete-item","open-chart"],
   computed: {
     watchlistCategory: {
       get() {
@@ -36,12 +234,6 @@ export default {
       set(value) {
         this.$emit('update:selectedGroupId', value)
       }
-    },
-    watchlistLoading() {
-      return this.loading
-    },
-    watchlistLoaded() {
-      return this.loaded
     },
     watchGroups() {
       return this.watchlist.groups.filter(group => group.category === this.category)

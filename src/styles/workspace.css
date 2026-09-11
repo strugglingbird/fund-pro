@@ -30,6 +30,7 @@
 }
 
 .workspace-menu {
+  --el-menu-horizontal-height: 42px;
   flex: 1;
   border-bottom: 0;
   background: transparent;
@@ -169,13 +170,13 @@
   text-align: center;
 }
 
-.position-link {
+.el-button.position-link {
   padding: 0;
   color: var(--text);
   font-weight: 600;
 }
 
-.position-link:hover {
+.el-button.position-link:hover {
   color: #0e6fb4;
 }
 
@@ -968,7 +969,7 @@ h1 {
   color: var(--muted);
 }
 
-.danger-text {
+.el-button.danger-text {
   color: var(--danger);
 }
 
@@ -1039,12 +1040,16 @@ h1 {
 
   .workspace-menu {
     order: 3;
+    flex: 0 0 100%;
+    min-width: 0;
     width: 100%;
     overflow-x: auto;
+    overflow-y: hidden;
     white-space: nowrap;
   }
 
   .workspace-menu.el-menu--horizontal > .el-menu-item {
+    flex-shrink: 0;
     float: none;
     display: inline-block;
     padding: 0 13px;

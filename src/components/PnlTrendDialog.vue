@@ -1,19 +1,59 @@
 <template>
   <div>
-    <el-dialog title="当日收益率走势 · 指数对比" :visible.sync="dialogVisible" width="860px" @opened="renderPnlTrendChart">
+    <el-dialog
+      v-model="dialogVisible"
+      title="当日收益率走势 · 指数对比"
+      width="860px"
+      @opened="renderPnlTrendChart"
+    >
       <div class="pnl-trend-toolbar">
         <span class="pnl-trend-toolbar-label">对比指数</span>
-        <el-checkbox-group v-model="pnlTrendIndexCodes" :disabled="pnlTrendLoading">
-          <el-checkbox v-for="index in pnlTrend.indices" :key="index.code" :label="index.code" :disabled="!index.available">{{ index.name }}</el-checkbox>
+        <el-checkbox-group
+          v-model="pnlTrendIndexCodes"
+          :disabled="pnlTrendLoading"
+        >
+          <el-checkbox
+            v-for="index in pnlTrend.indices"
+            :key="index.code"
+            :value="index.code"
+            :disabled="!index.available"
+          >
+            {{ index.name }}
+          </el-checkbox>
         </el-checkbox-group>
-        <el-button type="text" :loading="pnlTrendLoading" @click="loadPnlTrend(true)">重新抓取</el-button>
+        <el-button
+          type="primary"
+          link
+          :loading="pnlTrendLoading"
+          @click="loadPnlTrend(true)"
+        >
+          重新抓取
+        </el-button>
       </div>
 
-      <div v-if="pnlTrendLoading" class="pnl-trend-skeleton"><i /><i /><i /><i /></div>
-      <div v-else-if="pnlTrendError" class="empty-state">{{ pnlTrendError }}</div>
-      <div v-else-if="!pnlTrend.portfolio.available" class="empty-state">暂无当日收益率走势，请确认持仓已录入且行情可用。</div>
+      <div
+        v-if="pnlTrendLoading"
+        class="pnl-trend-skeleton"
+      >
+        <i /><i /><i /><i />
+      </div>
+      <div
+        v-else-if="pnlTrendError"
+        class="empty-state"
+      >
+        {{ pnlTrendError }}
+      </div>
+      <div
+        v-else-if="!pnlTrend.portfolio.available"
+        class="empty-state"
+      >
+        暂无当日收益率走势，请确认持仓已录入且行情可用。
+      </div>
       <template v-else>
-        <div ref="pnlTrendChart" class="pnl-trend-chart" />
+        <div
+          ref="pnlTrendChart"
+          class="pnl-trend-chart"
+        />
         <div class="pnl-trend-meta">
           <span>组合当日收益率与指数涨跌幅对比</span>
           <span>覆盖 {{ pnlTrend.portfolio.covered }}/{{ pnlTrend.portfolio.total }} 个持仓</span>
@@ -27,8 +67,10 @@
 </template>
 
 <script>
+import { markRaw } from 'vue'
 import * as echarts from 'echarts'
 import { fetchPortfolioIntradayPnl } from '../api/dashboard'
+import dialogModel from '../mixins/dialog'
 
 const DEFAULT_INDEX_CODES = ['sh000001', 'sz399006', 'sh000688']
 const INDEX_COLORS = { sh000001: '#f0a13c', sz399006: '#7c5cff', sh000688: '#2aa7c4' }
@@ -45,21 +87,17 @@ const emptyPnlTrend = () => ({
 
 export default {
   name: 'PnlTrendDialog',
+  mixins: [dialogModel],
   props: {
     visible: Boolean
   },
+  emits: ["update:visible"],
   data() {
     return {
       pnlTrendLoading: false,
       pnlTrendError: '',
       pnlTrend: emptyPnlTrend(),
       pnlTrendIndexCodes: DEFAULT_INDEX_CODES.slice()
-    }
-  },
-  computed: {
-    dialogVisible: {
-      get() { return this.visible },
-      set(value) { this.$emit('update:visible', value) }
     }
   },
   watch: {
@@ -74,7 +112,7 @@ export default {
   mounted() {
     window.addEventListener('resize', this.resizeChart)
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('resize', this.resizeChart)
     this.disposeChart()
   },
@@ -133,7 +171,7 @@ export default {
         })
       })
 
-      this.trendInstance = this.trendInstance || echarts.init(container)
+      this.trendInstance = this.trendInstance || markRaw(echarts.init(container))
       this.trendInstance.setOption({
         animationDuration: 350,
         backgroundColor: '#f8fbff',
@@ -145,6 +183,7 @@ export default {
           borderWidth: 0,
           textStyle: { color: '#fff' },
           formatter: params => {
+            if (!params || !params.length) return ''
             const lines = params
               .filter(item => item.value !== null && item.value !== undefined)
               .map(item => `${item.marker}${item.seriesName}：${Number(item.value).toFixed(2)}%`)

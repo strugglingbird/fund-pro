@@ -13,7 +13,9 @@
       @touchend.stop.prevent="refreshFromTouch"
       @touchcancel="stopDrag"
       @click="refreshFromClick"
-    ><i class="el-icon-refresh" /></button>
+    >
+      <el-icon><Refresh /></el-icon>
+    </button>
     <button
       type="button"
       class="privacy-fab"
@@ -26,21 +28,26 @@
       @touchend.stop.prevent="toggleFromTouch"
       @touchcancel="stopDrag"
       @click="toggleFromClick"
-    ><i class="el-icon-view" /></button>
+    >
+      <el-icon><ViewIcon /></el-icon>
+    </button>
   </div>
 </template>
 
 <script>
+import { Refresh, View as ViewIcon } from '@element-plus/icons-vue'
 import draggableFab from '../mixins/draggableFab'
 
 export default {
   name: 'FloatingActions',
+  components: { Refresh, ViewIcon },
   mixins: [draggableFab],
   props: {
     loading: Boolean,
     refreshing: Boolean,
     numbersVisible: Boolean
   },
+  emits: ["refresh","toggle-numbers"],
   methods: {
     refreshFromClick() {
       if (this.isDragged('refresh')) return

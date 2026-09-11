@@ -15,6 +15,7 @@
 - [数据库结构](#数据库结构)
 - [HTTP API](#http-api)
 - [环境配置](#环境配置)
+- [前端组件库与兼容性](#前端组件库与兼容性)
 - [本地开发](#本地开发)
 - [构建与部署](#构建与部署)
 - [Android APK](#android-apk)
@@ -27,11 +28,11 @@
 
 | 页面 | 功能 |
 | --- | --- |
-| 首页 | 市值、当日盈亏、消息数量、更新时间；市场温度、涨跌家数和涨跌停比；板块涨幅榜/跌幅榜各前五；东方财富最新消息与更多入口 |
-| 持仓收益 | 股票、ETF、场外基金新增/修改/删除；自动识别名称和行情；份额及成本管理；市值、累计持有收益、今日预估/实际收益及对应收益率；点击「累计今日预估收益」查看当日收益率走势并与指数对比 |
-| 自选 | 股票/ETF 与场外基金分开分组；创建/删除组、添加/删除标的；后端提供分组上移/下移接口；浏览器记住分类下最后选中的组 |
-| 市场指数 | 内地、港股、美股、韩国 TAB；指数分时图；行业涨幅前十和跌幅前十 |
-| 消息快讯 | 财联社、东方财富、新浪、富途、同花顺渠道卡片；重要关键词筛选、各渠道内时间倒序 |
+| 首页 | 市值、当日盈亏、消息数量、更新时间；市场温度、涨跌家数；板块涨幅榜/跌幅榜各前五；最新快讯与更多入口 |
+| 持仓收益 | 股票、ETF、场外基金新增/修改/删除；自动识别名称和行情；份额及成本管理；市值、累计持有收益、今日预估/实际收益及对应收益率；新增持仓默认同时加入自选（可取消勾选）；点击「累计今日预估收益」查看当日收益率走势并与指数对比 |
+| 自选 | 股票/ETF 与场外基金分开分组；每个分类各有一个默认分组（场内自选/场外基金），不可删除；创建/删除组、添加/删除标的；后端提供分组上移/下移接口；浏览器记住分类下最后选中的组 |
+| 市场指数 | 内地、港股、美股 TAB；指数分时图；行业涨幅前十和跌幅前十 |
+| 消息快讯 | 财联社、新浪、富途、同花顺渠道卡片；重要关键词筛选、各渠道内时间倒序 |
 | 场外基金详情 | 估值/业绩走势 TAB；估值更新时间、归档日期选择；持仓股/历史净值 TAB；持仓股加入自选时选择分组 |
 
 持仓表默认按预估涨幅降序，含份额、成本、昨收、现价、估值、预估涨幅/收益、当日涨幅/收益，最后为持有收益及收益率。成本价与基金净值展示四位小数。首页和持仓敏感数字默认以 `****` 隐藏，悬浮眼睛切换，悬浮刷新重新请求数据；按钮支持拖动和移动端操作。
@@ -96,12 +97,11 @@
 │  backend/database.py        │  │  backend/providers/ 子包            │
 │   - SQLite (本地)           │  │   core: 缓存工厂 (cache_market_     │
 │   - MySQL 8.4 (Docker)      │  │          value), Time/TTL          │
-│   - ? → %s 占位符转换       │  │   quotes: 腾讯/AkShare 股票/ETF     │
-│   - INSERT OR IGNORE →      │  │   market: 指数/行业/市场宽度/涨跌停 │
+│   - ? → %s 占位符转换       │  │   quotes: 腾讯股票/ETF、交易日历    │
+│   market: 指数/行业/市场宽度       │
 │     INSERT IGNORE 兼容      │  │   fund123: 估值/历史/持仓/业绩      │
-│   - 启动建表 + 少量迁移     │  │   eastmoney: 新闻、备用净值         │
 │   表:                       │  │   news: 多渠道快讯聚合              │
-│     holdings                │  │   funds: 场外回退链 (1234567/天天)  │
+│   funds: 场外回退链 (fund123)       │
 │     watchlist_groups/items  │  │                                     │
 │     app_settings            │  │   进程内缓存 (MARKET_CACHE dict)     │
 │     fund_estimate_archives  │  │   ttl: 盘中 15~60s, 闭市至下开盘    │
@@ -113,13 +113,12 @@
 │                          调度层 (进程内)                              │
 │   backend/fund_archives.py                                           │
 │     - 每 300s 一轮                                                    │
-│     - 北京时间 15:05 后用 AkShare 交易日历确认交易日                   │
+│     - 北京时间 15:05 后用交易日历确认交易日                           │
 │     - SQL UNION 合并 holdings/watchlist_items.code                    │
 │     - fund123 估值 (场外) / 腾讯分时 (场内)                           │
 │     - 校验: 所有点属于当天, 最晚 ≥15:00, JSON payload                  │
 │     - 失败 5 分钟重试, 成功不覆盖, 长期保留                            │
 │                                                                        │
-│   refresh_kospi 后台线程 (韩国 KOSPI 普通抓取)                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -132,7 +131,7 @@
   -> app.py if/elif 路由链 + _send_error 统一异常处理
      -> services.py DashboardService 编排、持仓/自选、收益计算
         -> database.py -> SQLite / MySQL
-        -> providers/ 子包 (quotes/market/fund123/eastmoney/news/funds)
+        -> providers/ 子包 (quotes/market/fund123/news/funds)
            -> 进程内缓存 (core.cache_market_value) -> 外部行情/基金/新闻
      -> fund_archives.py -> 数据库历史估值
 
@@ -140,13 +139,13 @@
   -> fund123 估值 / 腾讯场内分时 -> 日期及收盘点校验 -> 数据库
 ```
 
-`App.vue` 用 activeMenu 切换菜单，没有 Vue Router 或 Vuex。面板放在 `src/components/`，弹窗与悬浮按钮同理；共享格式化逻辑在 `src/utils/format.js`，可拖拽悬浮按钮在 `src/mixins/`。后端每个 HTTP 请求在线程中执行，部分指数并发抓取；归档和韩国指数刷新使用进程内后台线程。
+`App.vue` 用 activeMenu 切换菜单，没有 Vue Router 或 Vuex。面板放在 `src/components/`，弹窗与悬浮按钮同理；共享格式化逻辑在 `src/utils/format.js`，可拖拽悬浮按钮在 `src/mixins/`。后端每个 HTTP 请求在线程中执行，部分指数并发抓取；归档使用进程内后台线程。
 
 | 层 | 关键实现 |
 | --- | --- |
-| 前端 | Vue 2.7、Vue CLI 5、Element UI 2、ECharts 5、Axios 1；具体安装版本由 package-lock.json 锁定 |
+| 前端 | Vue 3.5.42、Vue CLI 5、Element Plus 2.14.5、ECharts 5、Axios 1；具体安装版本由 package-lock.json 锁定 |
 | 后端 | Python 3.11、标准库 ThreadingHTTPServer；没有 Flask/FastAPI、ORM 或独立任务队列 |
-| 数据适配 | AkShare 1.18.94、urllib，部分回退请求使用系统 curl |
+| 数据适配 | AkShare 1.18.94（仅快讯）、urllib |
 | 存储 | SQLite / PyMySQL 1.1.1；Docker MySQL 8.4；cryptography 46.0.5 支持数据库认证 |
 | 网关 | Caddy 2.8，HTTPS、静态文件与 API 反向代理 |
 | Android | Capacitor 8.5、JDK 21、Gradle；minSdk 24、compileSdk/targetSdk 36 |
@@ -156,7 +155,7 @@
 ```text
 fund-pro/
   src/
-    main.js                 Vue/Element UI 初始化和全局 CSS
+    main.js                 Vue 3/Element Plus 初始化和全局 CSS
     App.vue                 导航、全局状态、定时刷新；不再承载面板/弹窗模板
     api/dashboard.js        Axios 地址、超时及全部 API 函数
     components/             面板 (Home/Holdings/Watchlist/Market/News) + 弹窗 + FloatingActions
@@ -171,7 +170,7 @@ fund-pro/
     run.py                  后端启动入口
     app.py                  if/elif 路由链 + _send_error 统一异常处理 + JSON
     services.py             DashboardService：持仓/自选 CRUD、收益汇总、当日走势、降级数据
-    providers/              子包：core/quotes/fund123/eastmoney/market/news/funds
+    providers/              子包：core/quotes/fund123/market/news/funds
     database.py             SQLite/MySQL 连接、建表及兼容 SQL
     fund_archives.py        收盘采集、归档校验、历史日期及读取
   docs/
@@ -215,6 +214,8 @@ fund-pro/
 3. 同一看板请求还取得行业排名、市场宽度后返回 JSON。因此全市场抓取也会影响看板响应速度。
 4. 指数、快讯由页面通过各自 API 并行请求；自选先查询 groups/items，再按类型附加报价。
 5. Vue 更新页面；点击名称打开详情并渲染 ECharts。新增持仓先写数据库，再请求看板，保存成功不等于随后行情刷新成功。
+6. 新增持仓在同一事务内按类型镜像到自选：stock/etf 进 exchange 分类的默认组，fund 进 fund 分类的默认组；同代码已存在或没有对应分类分组时跳过，失败不影响持仓创建。关闭「同时加入自选」则不镜像。删除持仓不会删除自选标的。
+7. 默认分组（场内自选/场外基金）在 `watchlist_groups.is_default` 标记，每次启动由 `init_db()` 保证每个分类恰好一个；删除默认分组会返回 400，前端对默认分组不显示「删除分组」。
 
 设 Q=份额，C=成本，P0=昨日收盘价，P=现价，E=估值，涨幅单位为百分数：
 
@@ -236,7 +237,7 @@ fund123 netValue 为最新公布净值，主链路校验 netValueDate 等于北�
 
 ### 收盘归档与回看
 
-后端启动后每轮判断北京时间是否达到 15:05，并用 AkShare 交易日历确认。SQL UNION 合并持仓和自选中 fund/stock/etf 类型代码，跳过当天已有记录；场外抓取 fund123 估值，场内抓取腾讯分时。
+后端启动后每轮判断北京时间是否达到 15:05，并用交易日历确认。SQL UNION 合并持仓和自选中 fund/stock/etf 类型代码，跳过当天已有记录；场外抓取 fund123 估值，场内抓取腾讯分时。
 
 所有点必须属于当天，最晚时间不早于 15:00，才保存 JSON。每轮结束等待 300 秒，失败下轮重试；异常写日志，空或不完整曲线跳过。午夜后只处理新日期，没有跨日补采。读取日期列表和选定日期的历史曲线只访问数据库。
 
@@ -244,20 +245,22 @@ fund123 netValue 为最新公布净值，主链路校验 netValueDate 等于北�
 
 ## 外部数据源
 
-适配实现见 [providers.py](backend/providers.py)，日历见 [fund_archives.py](backend/fund_archives.py)。以下描述当前调用关系，不保证上游更新频率。
+适配实现见 [providers/](backend/providers/) 包（按数据源分子模块），日历见 [fund_archives.py](backend/fund_archives.py)。以下描述当前调用关系，不保证上游更新频率。
 
 | 使用位置 | 来源 | 回退/说明 |
 | --- | --- | --- |
-| 持仓股票/ETF、场内识别 | 腾讯 qt.gtimg.cn/q=... | 持仓并非统一使用 AkShare |
-| 自选股票/ETF | AkShare stock_zh_a_spot_em / fund_etf_spot_em | 按代码匹配，失败回退腾讯 |
+| 持仓股票/ETF、场内识别 | 腾讯 qt.gtimg.cn/q=... | 不经过 AkShare |
+| 自选股票/ETF | 腾讯批量报价接口 | 按代码匹配后一次取回 |
 | 内地、港股、美股指数 | 腾讯报价，并发请求 | 内地四指数、恒生、恒生科技 hkHSTECH、道琼斯、纳斯达克、标普500 |
-| 韩国 KOSPI | AkShare index_global_spot_em | Yahoo query1.finance.yahoo.com/v8/finance/chart/%5EKS11；普通请求后台更新 |
 | 场内及内地/港股分时 | 腾讯 web.ifzq.gtimg.cn/appstock/app/minute/query | 不可用显示空状态 |
-| 美股、韩国分时 | Yahoo chart API | range=1d、interval=5m，并非逐笔行情 |
-| 行业前十排名 | AkShare stock_board_industry_summary_ths | 东方财富 push2 /api/qt/clist/get，最终静态榜单 |
-| 全市涨跌家数 | AkShare stock_zh_a_spot_em | 同花顺行业上涨/下跌家数汇总 |
-| 涨跌停 | 实时快照阈值计数 | 回退 stock_zt_pool_em / stock_zt_pool_dtgc_em |
-| 归档交易日 | AkShare tool_trade_date_hist_sina | 日历不覆盖或失败时不归档，重试 |
+| 美股指数分时 | ~~Yahoo chart API~~ 已移除 | 公开端返回 HTTP 403，没有可用的免费替代，美股指数不提供当日分时 |
+| 行业前十排名 | 腾讯 proxy.finance.qq.com/cgi/cgi-bin/rank/pt/getRank | 一次取全部行业后本地排序；失败回退 services.py 的 FALLBACK_SECTORS 静态榜单 |
+| 全市涨跌家数 | 腾讯板块 `zgb` 汇总 | 只给「上涨家数/板块总家数」，平盘计入下跌；不再提供涨跌停家数 |
+| 财经快讯 | AkShare（财联社 / 新浪 / 富途 / 同花顺） | 单渠道失败跳过，全部失败返回空消息结构 |
+| 归档交易日 | 腾讯日 K web.ifzq.gtimg.cn/appstock/app/fqkline/get | 每根日 K 即一个交易日；取不到则不归档并重试 |
+
+AkShare 目前只用于快讯的财联社、新浪、富途、同花顺四个源。东方财富全系接口（push2 / push2ex / np-listapi / fundgz / pingzhongdata / FundValuationLast）与韩国 KOSPI 已移除：
+`push2 /api/qt/clist/get` 会对本项目请求直接断连，其余东财接口也不再作为回退路径。
 
 ### fund123 接口
 
@@ -275,25 +278,27 @@ fund123 netValue 为最新公布净值，主链路校验 netValueDate 等于北�
 
 forecastGrowth 是比例，乘 100 展示为百分数。分时估值以参考净值计算并保留四位小数；归档保存原始涨幅和毫秒时间戳。
 
-基金报价回退顺序：可选 FUND123_ESTIMATE_URL → fund123 盘中估值 → fundgz.1234567.com.cn/js/{code}.js → 天天基金/东方财富 FundValuationLast → fund.eastmoney.com/pingzhongdata/{code}.js 最新净值 → fund123 页面文本解析。自定义地址支持 `{code}` 占位符，JSON 格式需符合 fetch_fund123_valuation。
+基金报价回退顺序：可选 FUND123_ESTIMATE_URL → fund123 盘中估值 → fund123 页面文本解析。自定义地址支持 `{code}` 占位符，JSON 格式需符合 fetch_fund123_valuation。东方财富的 fundgz / pingzhongdata / FundValuationLast 回退已移除。
 
 ### 消息来源
 
-| 渠道 | AkShare API | 最多条数 |
+| 渠道 | 来源 | 最多条数 |
 | --- | --- | --- |
-| 财联社 | stock_info_global_cls(symbol='重点') | 6 |
-| 东方财富 | stock_info_global_em | 4 |
-| 新浪 | stock_info_global_sina | 4 |
-| 富途 | stock_info_global_futu | 4 |
-| 同花顺 | stock_info_global_ths | 4 |
+| 财联社 | AkShare `stock_info_global_cls()`（默认 symbol='全部'） | 6 |
+| 新浪 | AkShare `stock_info_global_sina` | 4 |
+| 富途 | AkShare `stock_info_global_futu` | 4 |
+| 同花顺 | AkShare `stock_info_global_ths` | 4 |
 
 按政策、央行、财报等关键词筛选，无命中时使用普通消息。按来源时间字符串降序，单渠道失败跳过，全部失败为空消息结构。当前没有央视/财经早餐等其他渠道，也没有 LLM 多空分析服务。
 
 ### 降级边界
 
 - services.py 保留 FALLBACK_SECTORS 静态榜单及“本地回退榜单”标签，不能当作实时排名。
-- 持仓所有来源失败时以成本价和零涨幅返回“本地回退数据”；东方财富最新净值回退尚未做与 fund123 相同的当天日期校验。
-- 实时涨跌停采用 ±9.9% 近似阈值，没有按证券区分 5%、10%、20%、30% 制度；回退日期主要按工作日推算。
+- 持仓所有来源失败时以成本价和零涨幅返回“本地回退数据”。
+- 市场宽度只有涨跌家数，没有涨跌停家数；涨跌家数按腾讯行业板块 `zgb` 汇总，平盘计入下跌。
+- 场外基金没有盘中实时价：交易日盘中只有 fund123 的估值与预估涨幅，`现价/当日涨幅` 为空；
+  净值公布后（当日晚间）或休市日（周末/节假日）才有 `现价/当日涨幅`，取 fund123 最新一期已确认净值
+  及其相对上一期净值的涨幅。
 - 部分第三方异常被静默降级，没有完整数据质量监控或统一上游总超时。数值要结合数据源和日期理解。
 
 ## 缓存与定时任务
@@ -326,7 +331,7 @@ forecastGrowth 是比例，乘 100 展示为百分数。分时估值以参考净
 | 表 | 字段 | 约束/用途 |
 | --- | --- | --- |
 | holdings | id, name, code, asset_type, quantity, cost_price, created_at | id 自增；代码字符串保留前导零；同代码可多条持仓 |
-| watchlist_groups | id, name, category, sort_order, created_at | name+category 唯一；category=exchange/fund |
+| watchlist_groups | id, name, category, sort_order, is_default, created_at | name+category 唯一；category=exchange/fund；每个分类有且仅有一个 is_default=1 的默认分组，删除接口拒绝删除 |
 | watchlist_items | id, group_id, name, code, asset_type, created_at | group_id+code+asset_type 唯一；外键级联删除 |
 | app_settings | key, value | key 主键，当前存默认分组初始化标记 |
 | fund_estimate_archives | code, trade_date, payload, saved_at | 场外估值；code+trade_date 联合主键，独立于持仓/自选生命周期 |
@@ -358,11 +363,11 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 
 | 方法/路径 | 参数或请求体 | 返回/作用 |
 | --- | --- | --- |
-| GET /health | 无 | status=ok，仅进程健康 |
+| GET /health | 无 | status=ok 与 database（engine/host/port/database/user 或 sqlite path），用于确认实例实际连的存储 |
 | GET /dashboard | force 可选 | portfolio、sectors、market_breadth、generated_at |
 | GET /portfolio/intraday-pnl | force 可选 | 当日收益走势：times、portfolio(pnl/rate)、indices(rate)、missing_holdings |
 | GET /holdings | 无 | items 原始持仓 |
-| POST /holdings | name, code, asset_type, quantity, cost_price | 新建，201 |
+| POST /holdings | name, code, asset_type, quantity, cost_price；add_to_watchlist 可选（默认 true） | 新建，201；响应含 watchlist_added、watchlist_group_name |
 | PUT /holdings/{id} | quantity, cost_price | 修改持仓 |
 | DELETE /holdings/{id} | 无 | deleted |
 | POST /seed-demo | 无 | 仅空持仓时插入三条演示持仓 |
@@ -398,6 +403,10 @@ SQLite：id 为 INTEGER AUTOINCREMENT，数量/成本 REAL、文本 TEXT。MySQL
 | MYSQL_BIND_ADDRESS | 0.0.0.0 | MySQL 监听地址；0.0.0.0 = 监听所有网卡，127.0.0.1 = 仅本地。公网暴露必须配合云安全组白名单 |
 | MYSQL_HOST_PORT | 3306 | MySQL 映射到宿主机的 TCP 端口 |
 | FUND123_ESTIMATE_URL | 默认空 | 自建估值适配地址 |
+
+本机开发在 `backend/.env.local` 写 `DATABASE_ENGINE=mysql` 与 MySQL 连接信息，`backend/run.py` 启动前自动加载（shell 已 export 的同名变量优先），生产 / Docker 不使用该文件。
+
+`DATABASE_ENGINE` 缺省时**静默回退到 SQLite**（`backend/fund_pro.db`），不报错、接口照常返回 200，只是读到的是本地旧数据。因此后端启动时会打印当前存储后端，且 `GET /api/health` 的 `database` 字段会返回实际目标；排查"数据不对"时先查这两个位置确认实例连的是哪个库。
 | WEB_DOMAIN / API_DOMAIN | .env.deploy 必填 | 站点/API 域名 |
 | SERVER_IP | Compose 有默认，部署应显式改写 | Caddy HTTP IP 入口 |
 | MYSQL_IMAGE / PYTHON_IMAGE / CADDY_IMAGE | mysql:8.4 / python:3.11-slim / caddy:2.8-alpine | 镜像覆盖 |
@@ -410,9 +419,17 @@ API 基址优先级：构建变量 → 运行时变量 → 同源 /api。改构�
 
 Python 不自动加载 dotenv，本地需在 shell 设置变量；.env.deploy 由 Compose --env-file 读取。market_now 显式用 UTC+8，关键净值和归档不依赖容器系统时区，但并非所有来源的历史显示时间都已统一转换。
 
+## 前端组件库与兼容性
+
+前端使用原生 Vue 3.5.42（Options API）和固定版本 Element Plus 2.14.5，保留 Vue CLI 5 构建、原有菜单、API 和收益计算。应用通过 createApp 初始化，Element Plus 全局设置简体中文；图标使用 @element-plus/icons-vue 的 SVG 组件。自定义组件双向绑定使用 v-model:参数，弹窗内部使用 v-model，插槽使用 #header / #footer / #default；日期选择器向后端继续传 YYYY-MM-DD 字符串。组件和拖拽 mixin 在 beforeUnmount 清理事件、定时器及图表。
+
+前端回归使用 Vitest、Vue Test Utils 和 jsdom，测试配置中的 Vite 仅用于测试，生产构建仍为 Vue CLI。npm test 使用真实 Element Plus 组件，模拟 API 与 ECharts，覆盖表单、弹窗、表格、自选分类、日期查询、图表选择、导航、脱敏、刷新失败保留数据和清理钩子。此测试不验证上游行情、真实浏览器绘图或 Android 原生运行。
+
+Vue 3 / Element Plus 面向现代浏览器，不支持 IE；Android 继续依赖系统 WebView 和服务器 HTTPS API。
+
 ## 本地开发
 
-要求 Node.js 22+（当前 Capacitor CLI 要求 >=22）、npm、Python 3.11。Linux 部署另需 Bash、Docker Engine/Compose；部分回退可用系统 curl。
+要求 Node.js 22+（当前 Capacitor CLI 要求 >=22）、npm、Python 3.11。Linux 部署另需 Bash、Docker Engine/Compose。
 
 ```powershell
 git clone https://github.com/strugglingbird/fund-pro.git
@@ -433,11 +450,12 @@ npm run serve
 
 ```bash
 npm run build
-npm run lint -- --no-fix
+npm run lint
+npm test
 python -m compileall -q backend
 ```
 
-build 产出 dist。单独执行 npm run lint 可能自动修复；现有构建含模板格式和大包警告，不是零警告。当前没有统一后端自动化测试套件，计算、日期、归档等变更应做针对性验证。
+build 产出 dist。npm run lint 默认只检查，不自动修复；生产构建仍有依赖包体积警告。当前没有统一后端自动化测试套件，计算、日期、归档等变更应做针对性验证。
 
 ## 构建与部署
 
@@ -532,7 +550,7 @@ docker compose --env-file .env.deploy exec -T db sh -c 'MYSQL_PWD="$MYSQL_PASSWO
 | 保存成功列表未更新 | holdings 写入与 dashboard 刷新分别检查 |
 | 实际净值为空 | fund123 netValueDate 是否今天，注意回退来源 |
 | 走势图为空或某段缺失 | 持仓是否为空；当天归档是否存在、fund123/腾讯分时是否可达；个别标的无分时列入 missing_holdings |
-| 韩国暂缺数据 | AkShare/Yahoo 可达性、后台刷新结果 |
+| 快讯为空 | akshare 是否安装可用；财联社/新浪/富途/同花顺各渠道失败会跳过，全部失败返回空结构 |
 | 归档日期为空 | 场外持仓/自选是否存在；日历、15:05 后服务运行、15:00 点是否返回 |
 | 个别归档缺失 | 异常日志；日期混杂/缺收盘点会跳过，不伪造也不跨日补采 |
 | IP 正常域名异常 | DNS、80/443、安全组、TLS 和网关分别检查 |
