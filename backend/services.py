@@ -65,13 +65,6 @@ def forward_fill(points, grid):
     return values
 
 
-DEMO_HOLDINGS = [
-    ("沪深300ETF", "510300", "etf", 1500, 4.08),
-    ("贵州茅台", "600519", "stock", 20, 1628.0),
-    ("天弘中证食品饮料ETF联接C", "001632", "fund", 3000, 1.62)
-]
-
-
 FALLBACK_SECTORS = {
     "gainers": [
         {"name": "证券", "change_rate": 3.68, "reason": "风险偏好抬升，市场预期成交额回暖。"},
@@ -208,21 +201,6 @@ class DashboardService:
                 (holding_id,)
             ).fetchone()
             return dict(row)
-        finally:
-            conn.close()
-
-    def seed_demo_holdings(self):
-        conn = get_connection()
-        try:
-            existing = conn.execute("SELECT COUNT(*) AS total FROM holdings").fetchone()["total"]
-            if existing:
-                return 0
-            conn.executemany(
-                "INSERT INTO holdings (name, code, asset_type, quantity, cost_price) VALUES (?, ?, ?, ?, ?)",
-                DEMO_HOLDINGS
-            )
-            conn.commit()
-            return len(DEMO_HOLDINGS)
         finally:
             conn.close()
 

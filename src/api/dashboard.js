@@ -75,6 +75,3 @@ export function updateHolding(id, payload) {
   return request.put(`/holdings/${id}`, payload)
 }
 
-export function seedDemo() {
-  return request.post('/seed-demo')
-}

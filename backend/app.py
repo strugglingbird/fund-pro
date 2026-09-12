@@ -163,8 +163,6 @@ class AppHandler(BaseHTTPRequestHandler):
             return self._send_json(service.create_watchlist_group(self._read_json()), status=201)
         if parsed.path == "/api/watchlist/items":
             return self._send_json(service.create_watchlist_item(self._read_json()), status=201)
-        if parsed.path == "/api/seed-demo":
-            return self._send_json({"inserted": service.seed_demo_holdings()})
         if len(parts) == 5 and parts[:3] == ["api", "watchlist", "groups"] and parts[4] == "move":
             service.move_watchlist_group(self._parse_id(parts[3], "分组"), self._read_json().get("direction"))
             return self._send_json({"moved": True})
