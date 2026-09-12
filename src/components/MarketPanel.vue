@@ -19,34 +19,25 @@
           label="美股"
           name="us"
         />
-      </el-tabs><el-row
+      </el-tabs>
+      <metric-rail
         v-if="isMarketInitialLoading"
-        :gutter="18"
+        :items="skeletonCards"
+        item-key="key"
         class="stats-row market-index-row"
       >
-        <el-col
-          v-for="card in 4"
-          :key="card"
-          :xs="6"
-          :sm="12"
-          :lg="6"
-        >
+        <template #default>
           <div class="index-card index-skeleton">
             <i /><i /><i />
           </div>
-        </el-col>
-      </el-row><el-row
+        </template>
+      </metric-rail><metric-rail
         v-else
-        :gutter="18"
+        :items="visibleMarketIndices"
+        item-key="code"
         class="stats-row market-index-row"
       >
-        <el-col
-          v-for="item in visibleMarketIndices"
-          :key="item.code"
-          :xs="6"
-          :sm="12"
-          :lg="6"
-        >
+        <template #default="{ item }">
           <div
             class="index-card index-card--clickable"
             role="button"
@@ -62,8 +53,8 @@
               {{ formatPercent(item.change_rate) }}
             </div>
           </div>
-        </el-col>
-      </el-row>
+        </template>
+      </metric-rail>
       <div
         v-if="!loading && !marketIndices.length"
         class="empty-state"
@@ -125,9 +116,13 @@
 
 <script>
 import { formatPercent, profitClass } from '../utils/format'
+import MetricRail from './MetricRail.vue'
+
+const SKELETON_COUNT = 4
 
 export default {
   name: 'MarketPanel',
+  components: { MetricRail },
   props: {
     marketIndices: { type: Array, default: () => [] },
     loading: Boolean,
@@ -151,6 +146,9 @@ export default {
     },
     visibleMarketIndices() {
       return this.marketIndices.filter(item => (item.market || 'cn') === this.tab)
+    },
+    skeletonCards() {
+      return Array.from({ length: SKELETON_COUNT }, (_, index) => ({ key: `skeleton-${index}` }))
     }
   },
   methods: {

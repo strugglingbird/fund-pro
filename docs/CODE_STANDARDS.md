@@ -159,6 +159,7 @@ src/components/
 ├── MarketPanel.vue            大盘指数 + 板块
 ├── NewsPanel.vue              消息快讯（按 tag / 板块筛选）
 ├── FloatingActions.vue        可拖拽的「刷新 / 脱敏」悬浮按钮
+├── MetricRail.vue             指标卡片轨道（移动端一行 3 卡片位 + 横滑分页）
 ├── IntradayChartDialog.vue    分时 K 线详情
 ├── PnlTrendDialog.vue         当日收益走势 + 三指数对比
 ├── CreateHoldingDialog.vue

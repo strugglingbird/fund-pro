@@ -17,34 +17,29 @@
           </el-button>
         </div>
       </section>
-      <el-row
-        :gutter="18"
+      <metric-rail
+        :items="statCards"
+        item-key="label"
         class="stats-row home-stats-row"
       >
-        <el-col
-          v-for="card in statCards"
-          :key="card.label"
-          :xs="24"
-          :sm="12"
-          :lg="6"
-        >
+        <template #default="{ item }">
           <div
             class="stat-card"
-            :class="{ 'stat-card--timestamp': card.isTimestamp }"
+            :class="{ 'stat-card--timestamp': item.isTimestamp }"
           >
             <div class="stat-label">
-              {{ card.label }}
+              {{ item.label }}
             </div><div
               class="stat-value"
-              :class="card.className"
+              :class="item.className"
             >
-              {{ card.value }}
+              {{ item.value }}
             </div><div class="stat-foot">
-              {{ card.foot }}
+              {{ item.foot }}
             </div>
           </div>
-        </el-col>
-      </el-row>
+        </template>
+      </metric-rail>
       <el-row
         :gutter="18"
         class="home-market-row"
@@ -203,6 +198,7 @@
 <script>
 import numberFormat from '../mixins/numberFormat'
 import { formatPercent, profitClass } from '../utils/format'
+import MetricRail from './MetricRail.vue'
 
 const EMPTY_BREADTH = {
   available: false,
@@ -216,6 +212,7 @@ const EMPTY_BREADTH = {
 
 export default {
   name: 'HomePanel',
+  components: { MetricRail },
   mixins: [numberFormat],
   props: {
     dashboard: { type: Object, required: true },

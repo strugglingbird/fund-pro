@@ -8,95 +8,40 @@
           </el-button>
         </div>
       </div>
-      <el-row
-        :gutter="18"
+      <metric-rail
+        :items="summaryCards"
+        item-key="key"
         class="stats-row holdings-summary"
       >
-        <el-col
-          :xs="24"
-          :sm="12"
-          :lg="6"
-        >
-          <div class="stat-card">
-            <div class="stat-label">
-              持仓总市值
-            </div><div class="stat-value">
-              {{ formatHoldingMoney(dashboard.portfolio.total_market_value) }}
-            </div><div class="stat-foot">
-              按现价或最新估值计入
-            </div>
-          </div>
-        </el-col>
-        <el-col
-          :xs="24"
-          :sm="12"
-          :lg="6"
-        >
-          <div class="stat-card">
-            <div class="stat-label">
-              累计持仓收益
-            </div><div
-              class="stat-value"
-              :class="profitClass(dashboard.portfolio.total_holding_pnl)"
-            >
-              {{ formatHoldingMoney(dashboard.portfolio.total_holding_pnl) }}
-            </div><div
-              class="stat-foot"
-              :class="profitClass(dashboard.portfolio.total_holding_pnl_rate)"
-            >
-              收益率 {{ formatHoldingPercent(dashboard.portfolio.total_holding_pnl_rate) }}
-            </div>
-          </div>
-        </el-col>
-        <el-col
-          :xs="24"
-          :sm="12"
-          :lg="6"
-        >
+        <template #default="{ item }">
           <div
-            class="stat-card stat-card--clickable"
-            role="button"
-            tabindex="0"
-            title="查看当日收益走势与指数对比"
-            @click="openPnlTrendDialog"
+            class="stat-card"
+            :class="{ 'stat-card--clickable': item.clickable }"
+            :role="item.clickable ? 'button' : null"
+            :tabindex="item.clickable ? 0 : null"
+            :title="item.title"
+            @click="handleCardClick(item)"
+            @keyup.enter="handleCardClick(item)"
           >
             <div class="stat-label">
-              累计今日预估收益
+              {{ item.label }}
             </div><div
               class="stat-value"
-              :class="profitClass(dashboard.portfolio.total_estimated_pnl)"
+              :class="item.valueClass"
             >
-              {{ formatHoldingMoney(dashboard.portfolio.total_estimated_pnl) }}
+              {{ item.value }}
             </div><div
               class="stat-foot"
-              :class="profitClass(dashboard.portfolio.total_estimated_pnl_rate)"
+              :class="item.footClass"
             >
-              涨跌幅 {{ formatHoldingPercent(dashboard.portfolio.total_estimated_pnl_rate) }}<span class="stat-card-hint">走势对比</span>
+              {{ item.foot }}<span
+                v-if="item.hint"
+                class="stat-card-hint"
+              >{{ item.hint }}</span>
             </div>
           </div>
-        </el-col>
-        <el-col
-          :xs="24"
-          :sm="12"
-          :lg="6"
-        >
-          <div class="stat-card">
-            <div class="stat-label">
-              累计今日实际收益
-            </div><div
-              class="stat-value"
-              :class="profitClass(dashboard.portfolio.total_today_pnl)"
-            >
-              {{ formatHoldingMoney(dashboard.portfolio.total_today_pnl) }}
-            </div><div
-              class="stat-foot"
-              :class="profitClass(dashboard.portfolio.total_today_pnl_rate)"
-            >
-              涨跌幅 {{ formatHoldingPercent(dashboard.portfolio.total_today_pnl_rate) }}
-            </div>
-          </div>
-        </el-col>
-      </el-row>
+        </template>
+      </metric-rail>
       <el-card
         shadow="never"
         class="panel-card"
@@ -274,9 +219,11 @@
 <script>
 import numberFormat from '../mixins/numberFormat'
 import { assetTypeLabel, assetTypeTag, profitClass, sortableRate } from '../utils/format'
+import MetricRail from './MetricRail.vue'
 
 export default {
   name: 'HoldingsPanel',
+  components: { MetricRail },
   mixins: [numberFormat],
   props: {
     dashboard: { type: Object, required: true },
@@ -291,12 +238,55 @@ export default {
         const other = sortableRate(right.estimated_change_rate)
         return rate === other ? 0 : other - rate
       })
+    },
+    summaryCards() {
+      const portfolio = this.dashboard.portfolio
+      return [
+        {
+          key: 'market-value',
+          label: '持仓总市值',
+          value: this.formatHoldingMoney(portfolio.total_market_value),
+          foot: '按现价或最新估值计入'
+        },
+        {
+          key: 'holding-pnl',
+          label: '累计持仓收益',
+          value: this.formatHoldingMoney(portfolio.total_holding_pnl),
+          valueClass: profitClass(portfolio.total_holding_pnl),
+          foot: `收益率 ${this.formatHoldingPercent(portfolio.total_holding_pnl_rate)}`,
+          footClass: profitClass(portfolio.total_holding_pnl_rate)
+        },
+        {
+          key: 'estimated-pnl',
+          label: '累计今日预估收益',
+          value: this.formatHoldingMoney(portfolio.total_estimated_pnl),
+          valueClass: profitClass(portfolio.total_estimated_pnl),
+          foot: `涨跌幅 ${this.formatHoldingPercent(portfolio.total_estimated_pnl_rate)}`,
+          footClass: profitClass(portfolio.total_estimated_pnl_rate),
+          clickable: true,
+          hint: '走势对比',
+          title: '查看当日收益走势与指数对比'
+        },
+        {
+          key: 'today-pnl',
+          label: '累计今日实际收益',
+          value: this.formatHoldingMoney(portfolio.total_today_pnl),
+          valueClass: profitClass(portfolio.total_today_pnl),
+          foot: `涨跌幅 ${this.formatHoldingPercent(portfolio.total_today_pnl_rate)}`,
+          footClass: profitClass(portfolio.total_today_pnl_rate)
+        }
+      ]
     }
   },
   methods: {
     profitClass,
     assetTypeLabel,
     assetTypeTag,
+    handleCardClick(card) {
+      if (card.clickable) {
+        this.openPnlTrendDialog()
+      }
+    },
     openIntradayChart(row) {
       this.$emit('open-chart', row)
     },

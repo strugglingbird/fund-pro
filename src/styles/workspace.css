@@ -475,10 +475,6 @@ h1 {
   margin: 18px 0;
 }
 
-.home-stats-row > .el-col {
-  display: flex;
-}
-
 .home-market-row {
   margin-bottom: 18px;
 }
@@ -1095,10 +1091,6 @@ h1 {
     margin: 14px 0;
   }
 
-  .stats-row .el-col {
-    margin-bottom: 12px;
-  }
-
   .home-market-row {
     margin-bottom: 2px;
   }
@@ -1109,17 +1101,6 @@ h1 {
 
   .temperature-main strong {
     font-size: 26px;
-  }
-
-  .market-index-row .el-col {
-    margin-bottom: 0;
-    padding-right: 4px !important;
-    padding-left: 4px !important;
-  }
-
-  .market-index-row {
-    margin-right: -4px !important;
-    margin-left: -4px !important;
   }
 
   .market-index-row .index-card {
@@ -1197,5 +1178,122 @@ h1 {
 
   .news-head {
     align-items: flex-start;
+  }
+}
+
+/* 指标卡片轨道：桌面端栅格，移动端一行 3 个卡片位 + 横向滑动 */
+.metric-rail__viewport {
+  overflow: visible;
+}
+
+.metric-rail__track {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(var(--metric-rail-columns, 2), minmax(0, 1fr));
+}
+
+.metric-rail__cell {
+  display: flex;
+  min-width: 0;
+}
+
+.metric-rail__cell > * {
+  width: 100%;
+}
+
+@media (min-width: 1200px) {
+  .metric-rail__track {
+    grid-template-columns: repeat(var(--metric-rail-columns-lg, 4), minmax(0, 1fr));
+  }
+}
+
+.metric-rail__pager {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.metric-rail__dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #cfd9e6;
+  cursor: pointer;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.metric-rail__dot.is-active {
+  width: 16px;
+  background: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .metric-rail__viewport {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .metric-rail__viewport::-webkit-scrollbar {
+    display: none;
+  }
+
+  .metric-rail__track {
+    display: flex;
+    gap: var(--metric-rail-gap, 10px);
+  }
+
+  .metric-rail__cell {
+    flex: 0 0 calc((100% - (var(--metric-rail-per-view, 3) - 1) * var(--metric-rail-gap, 10px)) / var(--metric-rail-per-view, 3));
+    scroll-snap-align: start;
+  }
+
+  /* 卡片不足一屏时等分铺满，避免右侧留白 */
+  .metric-rail--static .metric-rail__cell {
+    flex: 1 1 0;
+  }
+
+  .metric-rail .stat-card,
+  .metric-rail .index-card {
+    padding: 14px 12px;
+  }
+
+  .metric-rail .stat-card {
+    min-height: 108px;
+  }
+
+  .metric-rail .index-card {
+    min-height: 118px;
+  }
+
+  .metric-rail .stat-label {
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric-rail .stat-value {
+    overflow: hidden;
+    font-size: clamp(15px, 4.2vw, 20px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric-rail .stat-foot {
+    overflow: hidden;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric-rail .stat-card-hint {
+    display: none;
   }
 }

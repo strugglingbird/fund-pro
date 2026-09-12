@@ -8,9 +8,11 @@ import EditHoldingDialog from '../src/components/EditHoldingDialog.vue'
 import WatchItemDialog from '../src/components/WatchItemDialog.vue'
 import FundHoldingWatchDialog from '../src/components/FundHoldingWatchDialog.vue'
 import WatchlistPanel from '../src/components/WatchlistPanel.vue'
+import MarketPanel from '../src/components/MarketPanel.vue'
 import IntradayChartDialog from '../src/components/IntradayChartDialog.vue'
 import PnlTrendDialog from '../src/components/PnlTrendDialog.vue'
 import FloatingActions from '../src/components/FloatingActions.vue'
+import MetricRail from '../src/components/MetricRail.vue'
 import App from '../src/App.vue'
 import * as api from '../src/api/dashboard'
 
@@ -168,6 +170,53 @@ describe('Element Plus migration: charts and dates', () => {
     wrapper.unmount()
     wrappers.splice(wrappers.indexOf(wrapper), 1)
     expect(instance.dispose).toHaveBeenCalledOnce()
+  })
+})
+
+describe('移动端指标卡片轨道', () => {
+  const metricItems = ['A', 'B', 'C', 'D', 'E'].map((label, index) => ({ code: `code-${index}`, label }))
+
+  it('每个指标渲染一个卡片位，未溢出时不显示翻页点', () => {
+    const wrapper = render(MetricRail, { items: metricItems, itemKey: 'code' })
+    expect(wrapper.findAll('.metric-rail__cell')).toHaveLength(5)
+    expect(wrapper.find('.metric-rail__pager').exists()).toBe(false)
+    expect(wrapper.classes()).not.toContain('metric-rail--static')
+  })
+
+  it('卡片不足一屏时等分铺满，溢出后才出现可点击的翻页点', async () => {
+    const fitted = render(MetricRail, { items: metricItems.slice(0, 2), itemKey: 'code' })
+    expect(fitted.classes()).toContain('metric-rail--static')
+    // jsdom 没有布局，等挂载后的首次测量结束，再注入测量结果模拟移动端溢出
+    const wrapper = render(MetricRail, { items: metricItems, itemKey: 'code' })
+    await flushPromises()
+    wrapper.vm.step = 120
+    wrapper.vm.pageCount = 3
+    await nextTick()
+    const dots = wrapper.findAll('.metric-rail__dot')
+    expect(dots).toHaveLength(3)
+    expect(dots[0].classes()).toContain('is-active')
+    await dots[2].trigger('click')
+    expect(wrapper.vm.activePage).toBe(2)
+    expect(wrapper.findAll('.metric-rail__dot')[2].classes()).toContain('is-active')
+  })
+
+  it('市场指数卡片改走轨道渲染后仍保留点击与骨架屏', async () => {
+    const wrapper = render(MarketPanel, {
+      marketIndices: [{ code: 'sh000001', name: '上证指数', market: 'cn', current_price: 3200, change_rate: 0.5 }],
+      dashboard: { sectors: { gainers: [], losers: [], source_label: '测试' } },
+      tab: 'cn'
+    })
+    expect(wrapper.findAll('.metric-rail__cell')).toHaveLength(1)
+    expect(wrapper.text()).toContain('上证指数')
+    await wrapper.find('.index-card--clickable').trigger('click')
+    expect(wrapper.emitted('open-chart')[0][0].code).toBe('sh000001')
+    const skeleton = render(MarketPanel, {
+      marketIndices: [],
+      loading: true,
+      dashboard: { sectors: { gainers: [], losers: [], source_label: '测试' } },
+      tab: 'cn'
+    })
+    expect(skeleton.findAll('.index-skeleton')).toHaveLength(4)
   })
 })
 
