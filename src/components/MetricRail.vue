@@ -66,14 +66,20 @@ export default {
     // 宽屏（>= 1200px）每行列数
     wideColumns: { type: Number, default: 4 },
     // 移动端相邻卡片间距（px）
-    gap: { type: Number, default: 10 }
+    gap: { type: Number, default: 10 },
+    // 需要自适应字号的元素，默认覆盖卡片里的标题 / 数值 / 脚注
+    fitSelector: {
+      type: String,
+      default: '.stat-label, .stat-value, .stat-foot, .index-label, .index-value'
+    }
   },
   emits: [],
   data() {
     return {
       pageCount: 1,
       activePage: 0,
-      step: 0
+      step: 0,
+      fitFrame: 0
     }
   },
   computed: {
@@ -102,14 +108,69 @@ export default {
     }
     window.addEventListener('resize', this.measure, { passive: true })
   },
+  updated() {
+    // 数值随行情刷新变长（如 ¥1.00 → ¥136149.25）时不会改变容器尺寸，
+    // ResizeObserver 收不到通知，所以在每次更新后再校验一次。
+    this.scheduleFitText()
+  },
   beforeUnmount() {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect()
       this.resizeObserver = null
     }
+    if (this.fitFrame && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(this.fitFrame)
+      this.fitFrame = 0
+    }
     window.removeEventListener('resize', this.measure)
   },
   methods: {
+    /**
+     * 让卡片里的文字自适应字号而不是被省略号截断。
+     * 先清掉上一次写入的行内字号（回到 CSS 基准），再测量是否溢出；
+     * 溢出时按「可用宽度 / 实际宽度」等比缩小，下限取元素上的 --fit-min。
+     */
+    fitText() {
+      const viewport = this.$refs.viewport
+      if (!viewport) return
+      const nodes = viewport.querySelectorAll(this.fitSelector)
+      nodes.forEach(node => {
+        // 先清掉上一次的覆盖，回到 CSS 基准再判断（窗口变宽后字号要还原）
+        node.style.fontSize = ''
+        node.style.whiteSpace = ''
+        node.style.lineHeight = ''
+        const style = window.getComputedStyle(node)
+        const base = parseFloat(style.fontSize)
+        if (!base) return
+        const available = node.getBoundingClientRect().width
+        // jsdom 与隐藏容器下宽度为 0，跳过以免写出错误字号
+        if (!available) return
+        const required = node.scrollWidth
+        if (required <= available + 0.5) return
+        const min = parseFloat(style.getPropertyValue('--fit-min')) || 0
+        // 减 1px 作为四舍五入的余量，避免刚好卡在边界仍显示省略号
+        const next = base * ((available - 1) / required)
+        if (next < min) {
+          // 缩到下限仍放不下（如时间戳、长句脚注）：改成折行，多占一行也好过省略号
+          node.style.fontSize = `${min}px`
+          node.style.whiteSpace = 'normal'
+          node.style.lineHeight = '1.25'
+          return
+        }
+        node.style.fontSize = `${next.toFixed(2)}px`
+      })
+    },
+    scheduleFitText() {
+      if (this.fitFrame) return
+      if (typeof window === 'undefined' || !window.requestAnimationFrame) {
+        this.fitText()
+        return
+      }
+      this.fitFrame = window.requestAnimationFrame(() => {
+        this.fitFrame = 0
+        this.fitText()
+      })
+    },
     resolveItemKey(item, index) {
       if (typeof this.itemKey === 'function') {
         const key = this.itemKey(item)
@@ -126,6 +187,8 @@ export default {
     measure() {
       const viewport = this.$refs.viewport
       if (!viewport) return
+      // 卡片宽度变化时字号要重新算（清掉行内字号再按新宽度判断，既会缩也会放回去）
+      this.fitText()
       const cells = viewport.querySelectorAll('.metric-rail__cell')
       const width = viewport.clientWidth
       // jsdom 与隐藏容器下没有布局，直接判定为「不可滑动」

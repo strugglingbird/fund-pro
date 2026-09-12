@@ -2,7 +2,7 @@
   <div>
     <section>
       <div class="page-heading">
-        <div><h2>消息快讯</h2><p>聚合多平台财经快讯，优先展示高影响事件。</p></div><div class="panel-actions">
+        <div class="panel-actions">
           <span class="panel-tip">{{ newsFeed.total_count || 0 }} 条重要消息 · {{ newsFeed.generated_at || '--' }} 更新</span><el-button
             size="small"
             :loading="loading"

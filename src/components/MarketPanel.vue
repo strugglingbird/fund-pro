@@ -2,7 +2,7 @@
   <div>
     <section>
       <div class="page-heading">
-        <div><h2>市场指数</h2><p>主要市场指数与板块强弱复盘。</p></div><span class="panel-tip">{{ updatedAt || '--' }} 更新</span>
+        <span class="panel-tip">{{ updatedAt || '--' }} 更新</span>
       </div>
       <el-tabs
         v-model="activeMarketTab"

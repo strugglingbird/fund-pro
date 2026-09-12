@@ -2,7 +2,7 @@
   <div>
     <section>
       <div class="page-heading">
-        <div><h2>自选</h2><p>分组跟踪场内股票、ETF 与场外基金行情。</p></div><div class="panel-actions">
+        <div class="panel-actions">
           <span class="panel-tip">{{ watchlist.generated_at || '--' }} 更新</span><el-button
             size="small"
             :loading="loading"
@@ -14,7 +14,7 @@
       </div>
       <el-card
         shadow="never"
-        class="panel-card"
+        class="panel-card watchlist-card"
       >
         <el-tabs
           v-model="watchlistCategory"
@@ -80,6 +80,54 @@
           class="empty-state"
         >
           当前分组暂无自选标的，点击“添加自选”开始跟踪。
+        </div><div
+          v-else-if="isMobile"
+          class="data-card-list"
+        >
+          <div
+            v-for="row in watchItems"
+            :key="row.id"
+            class="data-card"
+          >
+            <div class="data-card__head">
+              <button
+                type="button"
+                class="data-card__name"
+                @click="openIntradayChart(row)"
+              >
+                {{ row.name }}
+              </button><span
+                class="data-card__rate"
+                :class="profitClass(row.daily_change_rate)"
+              >
+                {{ formatNullablePercent(row.daily_change_rate) }}
+              </span>
+            </div><div class="data-card__meta">
+              <span>{{ row.code }}</span><el-tag
+                size="small"
+                :type="assetTypeTag(row.asset_type)"
+              >
+                {{ assetTypeLabel(row.asset_type) }}
+              </el-tag><span v-if="row.source_label">{{ row.source_label }}</span><div class="data-card__actions">
+                <el-button
+                  type="primary"
+                  link
+                  class="danger-text"
+                  @click="deleteWatchItem(row.id)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </div><div class="data-card__grid">
+              <div
+                v-for="cell in watchCardCells(row)"
+                :key="cell.label"
+                class="data-card__cell"
+              >
+                <span>{{ cell.label }}</span><strong :class="cell.className">{{ cell.value }}</strong>
+              </div>
+            </div>
+          </div>
         </div><el-table
           v-else
           :data="watchItems"
@@ -205,11 +253,13 @@
 
 <script>
 import { Plus } from '@element-plus/icons-vue'
+import viewport from '../mixins/viewport'
 import { assetTypeLabel, assetTypeTag, formatNetValue, formatNullablePercent, profitClass } from '../utils/format'
 
 export default {
   name: 'WatchlistPanel',
   components: { Plus },
+  mixins: [viewport],
   props: {
     watchlist: { type: Object, required: true },
     loading: Boolean,
@@ -251,6 +301,29 @@ export default {
     profitClass,
     assetTypeLabel,
     assetTypeTag,
+    // 移动端卡片：场外基金多出「估值 / 预估涨幅」两格
+    watchCardCells(row) {
+      const isFund = row.asset_type === 'fund'
+      const cells = []
+      if (isFund) {
+        cells.push({ label: '估值', value: formatNetValue(row.estimated_price, row.asset_type) })
+      }
+      cells.push({ label: '现价', value: formatNetValue(row.current_price, row.asset_type) })
+      cells.push({ label: '昨日收盘', value: formatNetValue(row.previous_close, row.asset_type) })
+      cells.push({
+        label: '当日涨幅',
+        value: formatNullablePercent(row.daily_change_rate),
+        className: profitClass(row.daily_change_rate)
+      })
+      if (isFund) {
+        cells.push({
+          label: '预估涨幅',
+          value: formatNullablePercent(row.estimated_change_rate),
+          className: profitClass(row.estimated_change_rate)
+        })
+      }
+      return cells
+    },
     loadWatchlist(force) {
       this.$emit('reload', force)
     },

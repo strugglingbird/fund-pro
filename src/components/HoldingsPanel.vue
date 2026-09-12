@@ -1,13 +1,6 @@
 <template>
   <div>
     <section :class="{ 'page-skeleton-loading': initialLoading }">
-      <div class="page-heading">
-        <div><h2>持仓收益</h2><p>股票、ETF 与场外基金的实时估值及收益分析。</p></div><div class="panel-actions">
-          <el-button @click="seedDemoData">
-            导入演示持仓
-          </el-button>
-        </div>
-      </div>
       <metric-rail
         :items="summaryCards"
         item-key="key"
@@ -59,7 +52,83 @@
             </div>
           </div>
         </template>
-        <el-table
+        <div v-if="isMobile">
+          <div
+            v-if="sortedHoldingPositions.length"
+            class="data-card-list"
+          >
+            <div
+              v-for="row in sortedHoldingPositions"
+              :key="row.id"
+              class="data-card"
+            >
+              <div class="data-card__head">
+                <button
+                  type="button"
+                  class="data-card__name"
+                  @click="openIntradayChart(row)"
+                >
+                  {{ row.name }}
+                </button><span
+                  class="data-card__rate"
+                  :class="profitClass(row.estimated_change_rate)"
+                >
+                  {{ formatHoldingPercent(row.estimated_change_rate, true) }}
+                </span>
+              </div><div class="data-card__meta">
+                <span>{{ formatHoldingCode(row.code) }}</span><el-tag
+                  size="small"
+                  :type="assetTypeTag(row.asset_type)"
+                >
+                  {{ assetTypeLabel(row.asset_type) }}
+                </el-tag><span>{{ formatHoldingQuantity(row.quantity) }} 份</span><div class="data-card__actions">
+                  <el-button
+                    type="primary"
+                    link
+                    @click="openEditHolding(row)"
+                  >
+                    修改
+                  </el-button><el-button
+                    type="primary"
+                    link
+                    class="danger-text"
+                    @click="removeHolding(row.id)"
+                  >
+                    删除
+                  </el-button>
+                </div>
+              </div><div class="data-card__grid">
+                <div class="data-card__cell">
+                  <span>{{ row.asset_type === 'fund' ? '估值' : '现价' }}</span><strong>{{ formatHoldingNetValue(holdingPrice(row), row.asset_type) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>成本价</span><strong>{{ formatHoldingCostPrice(row.cost_price) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>昨日收盘</span><strong>{{ formatHoldingNetValue(row.previous_close, row.asset_type) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>预估收益</span><strong :class="profitClass(row.estimated_pnl)">{{ formatHoldingMoney(row.estimated_pnl, true) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>当日收益</span><strong :class="profitClass(row.today_pnl)">{{ formatHoldingMoney(row.today_pnl, true) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>持有收益</span><strong :class="profitClass(row.holding_pnl)">{{ formatHoldingMoney(row.holding_pnl) }}</strong>
+                </div>
+              </div><div class="data-card__foot">
+                <div class="data-card__cell">
+                  <span>实际涨幅</span><strong :class="profitClass(row.daily_change_rate)">{{ formatHoldingPercent(row.daily_change_rate, true) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>预估涨幅</span><strong :class="profitClass(row.estimated_change_rate)">{{ formatHoldingPercent(row.estimated_change_rate, true) }}</strong>
+                </div><div class="data-card__cell">
+                  <span>持有收益率</span><strong :class="profitClass(row.holding_pnl_rate)">{{ formatHoldingPercent(row.holding_pnl_rate) }}</strong>
+                </div>
+              </div>
+            </div>
+          </div><div
+            v-else
+            class="data-card-empty"
+          >
+            暂无持仓，点击「新增持仓」开始记录。
+          </div>
+        </div><el-table
+          v-else
           :data="sortedHoldingPositions"
           stripe
           :class="{ 'table-skeleton table-skeleton-wide': initialLoading }"
@@ -218,19 +287,20 @@
 
 <script>
 import numberFormat from '../mixins/numberFormat'
+import viewport from '../mixins/viewport'
 import { assetTypeLabel, assetTypeTag, profitClass, sortableRate } from '../utils/format'
 import MetricRail from './MetricRail.vue'
 
 export default {
   name: 'HoldingsPanel',
   components: { MetricRail },
-  mixins: [numberFormat],
+  mixins: [numberFormat, viewport],
   props: {
     dashboard: { type: Object, required: true },
     initialLoading: Boolean,
     numbersVisible: Boolean
   },
-  emits: ["open-chart","open-pnl-trend","create","edit","remove","seed-demo"],
+  emits: ["open-chart","open-pnl-trend","create","edit","remove"],
   computed: {
     sortedHoldingPositions() {
       return [...this.dashboard.portfolio.positions].sort((left, right) => {
@@ -287,6 +357,10 @@ export default {
         this.openPnlTrendDialog()
       }
     },
+    // 场外基金用最新估值，股票/ETF 用现价
+    holdingPrice(row) {
+      return row.asset_type === 'fund' ? row.estimated_price : row.current_price
+    },
     openIntradayChart(row) {
       this.$emit('open-chart', row)
     },
@@ -301,9 +375,6 @@ export default {
     },
     removeHolding(id) {
       this.$emit('remove', id)
-    },
-    seedDemoData() {
-      this.$emit('seed-demo')
     }
   }
 }

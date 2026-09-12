@@ -1,22 +1,6 @@
 <template>
   <div>
     <section :class="{ 'page-skeleton-loading': initialLoading }">
-      <section class="hero-card">
-        <div>
-          <p class="eyebrow">
-            Quant Workbench
-          </p>
-          <h1>量化工作台</h1>
-          <p class="hero-copy">
-            持仓估值、市场脉搏与财经要闻，集中在一个清爽的投资工作界面。
-          </p>
-        </div>
-        <div class="hero-actions">
-          <el-button @click="$emit('navigate', 'holdings')">
-            查看持仓收益
-          </el-button>
-        </div>
-      </section>
       <metric-rail
         :items="statCards"
         item-key="label"

@@ -1,5 +1,35 @@
 .app-shell {
   padding: 28px;
+  padding-top: calc(28px + env(safe-area-inset-top));
+  padding-right: calc(28px + env(safe-area-inset-right));
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  padding-left: calc(28px + env(safe-area-inset-left));
+}
+
+/* 下拉刷新指示器：静止时高度为 0（内联 style 驱动），完全不占空间 */
+.pull-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 跟随手指时要即时响应，只有回弹与刷新收尾才走高度过渡 */
+.pull-refresh.is-animating {
+  transition: height 0.2s ease;
+}
+
+.pull-refresh.is-refreshing .pull-refresh__icon {
+  animation: refresh-spin 0.8s linear infinite;
+}
+
+/* 移动端专用：底部 Tab Bar，桌面端不渲染交互 */
+.mobile-tabbar {
+  display: none;
 }
 
 .workspace-nav {
@@ -115,22 +145,68 @@
   to { transform: rotate(360deg); }
 }
 
+/* Page-level toolbar. The page title/description used to sit here; only the
+   action row (refresh button, updated-at tip) is kept so the first card gets
+   the vertical space instead. */
 .page-heading {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   gap: 18px;
-  margin: 4px 0 18px;
+  margin: 0 0 12px;
 }
 
-.page-heading h2 {
+/* ---------- 滚动吸顶 ---------- */
+/* 切页控件（自选/指数的选项卡、快讯的来源标题）滚到视口顶部后固定住，随时可切换
+   而不必先滑回顶部。底色用「半透明 + 毛玻璃」：静止时与页面/卡片底色融为一体、
+   看不出差异，内容从下方穿过时才显形。top 带安全区，避免被刘海屏状态栏压住。 */
+.el-tabs.market-index-tabs,
+.watchlist-card .el-tabs,
+.news-source-card .el-card__header {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 15;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* 选项卡：吸附的是 .el-tabs 本身而不是内部的 .el-tabs__header——sticky 只能在包含块
+   内移动，选项卡下方没有内容面板时 .el-tabs 的高度就等于头部，把 sticky 放在头部会
+   立刻被包含块底边顶走。上下留白改由 .el-tabs 的 padding 提供，吸附时底色才能盖住
+   与内容之间的空隙。 */
+.el-tabs.market-index-tabs,
+.watchlist-card .el-tabs {
+  padding: 4px 0 12px;
+}
+
+.el-tabs.market-index-tabs .el-tabs__header,
+.watchlist-card .el-tabs .el-tabs__header {
   margin: 0;
-  font-size: 26px;
 }
 
-.page-heading p {
-  margin: 7px 0 0;
-  color: var(--muted);
+.el-tabs.market-index-tabs {
+  background: rgba(242, 247, 253, 0.92);
+}
+
+.watchlist-card .el-tabs {
+  background: rgba(255, 255, 255, 0.94);
+}
+
+/* 快讯来源标题：顶部两角跟随卡片圆角（`inherit` 即卡片自身的 20/16px），
+   否则卡片放开裁剪后标题的方角会露在圆角之外 */
+.news-source-card .el-card__header {
+  border-radius: inherit;
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+/* Element 的 .el-card / .el-card__body 默认 overflow: hidden / auto，会把裁剪盒
+   变成滚动容器，让内部 sticky 失效。放开后卡片里没有需要裁剪的内容，视觉不变。 */
+.watchlist-card,
+.watchlist-card .el-card__body,
+.news-source-card {
+  overflow: visible;
 }
 
 .index-card {
@@ -228,7 +304,6 @@
 }
 
 .fund-chart-tabs .el-tabs__header { margin-bottom: 12px; }
-.market-index-tabs .el-tabs__header { margin-bottom: 12px; }
 .fund-performance-chart { width: 100%; height: 310px; }
 .performance-ranges { display: flex; justify-content: space-around; margin: 4px 0 10px; }
 .performance-ranges .active { color: #2f74e9; border-bottom: 2px solid #2f74e9; }
@@ -434,43 +509,6 @@
   font-size: 12px;
 }
 
-.hero-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 28px 32px;
-  border-radius: 24px;
-  background: var(--panel-soft);
-  color: #fff;
-  box-shadow: 0 18px 48px rgba(12, 56, 112, 0.15);
-}
-
-.eyebrow {
-  margin: 0 0 10px;
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  opacity: 0.78;
-}
-
-h1 {
-  margin: 0;
-  font-size: 34px;
-}
-
-.hero-copy {
-  max-width: 700px;
-  margin: 12px 0 0;
-  line-height: 1.7;
-  opacity: 0.92;
-}
-
-.hero-actions {
-  display: flex;
-  gap: 12px;
-}
-
 .stats-row {
   margin: 18px 0;
 }
@@ -553,13 +591,21 @@ h1 {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  padding: 4px 0 18px;
+  gap: 10px;
+  padding: 2px 0 10px;
   border-bottom: 1px solid #eef3f8;
 }
 
+/* 「市场情绪」标签与情绪值同行（基线对齐），不再独占一行 */
+.temperature-main > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
 .temperature-label {
-  display: block;
-  margin-bottom: 7px;
+  flex: 0 0 auto;
   color: var(--muted);
   font-size: 12px;
 }
@@ -574,12 +620,18 @@ h1 {
   font-weight: 700;
 }
 
+/* 四项指标默认横排一行（移动端在媒体查询里改成两列），把原来的四行纵向堆叠压掉 */
 .temperature-metrics {
   display: grid;
-  gap: 10px;
-  padding-top: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 14px;
+  padding-top: 10px;
   color: #62758e;
   font-size: 12px;
+}
+
+.temperature-metrics span {
+  min-width: 0;
 }
 
 .temperature-skeleton {
@@ -969,29 +1021,14 @@ h1 {
   color: var(--danger);
 }
 
-@media (max-width: 1200px) {
-  .hero-card {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
 @media (max-width: 768px) {
   .app-shell {
     padding: 12px;
-  }
-
-  .hero-card {
-    padding: 20px;
-    border-radius: 18px;
-  }
-
-  h1 {
-    font-size: 28px;
-  }
-
-  .page-heading h2 {
-    font-size: 23px;
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-right: calc(12px + env(safe-area-inset-right));
+    /* 预留底部 Tab Bar（含安全区）的高度，保证内容不被导航遮挡 */
+    padding-bottom: calc(78px + env(safe-area-inset-bottom));
+    padding-left: calc(12px + env(safe-area-inset-left));
   }
 
   .history-toolbar {
@@ -1021,70 +1058,39 @@ h1 {
     gap: 18px;
   }
 
-  .hero-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
+  /* 顶部条整条移除：切页交给底部 Tab Bar，刷新是下拉手势、脱敏是点击数值，
+     品牌文字不承载任何功能，留着只会白占约 36px 高度（含吸顶遮罩与投影） */
   .workspace-nav {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 16px;
-    padding: 10px 12px;
+    display: none;
   }
 
-  .workspace-menu {
-    order: 3;
-    flex: 0 0 100%;
-    min-width: 0;
-    width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-    white-space: nowrap;
-  }
-
-  .workspace-menu.el-menu--horizontal > .el-menu-item {
-    flex-shrink: 0;
-    float: none;
-    display: inline-block;
-    padding: 0 13px;
-  }
-
-  .refresh-fab {
-    right: 16px;
-    bottom: 20px;
-    width: 50px;
-    height: 50px;
-    font-size: 21px;
-  }
-
+  /* 桌面端的两个悬浮球在移动端隐藏：刷新改为下拉手势，脱敏改为点击数值 */
+  .refresh-fab,
   .privacy-fab {
-    right: 16px;
-    bottom: 82px;
-    width: 46px;
-    height: 46px;
-    font-size: 20px;
+    display: none;
   }
 
-  .page-heading {
-    align-items: flex-start;
-    flex-direction: column;
+  /* 页头只剩操作行：移动端保持单行右对齐，不额外占用纵向空间 */
+  .page-heading .panel-actions {
+    justify-content: flex-end;
   }
 
-  .panel-header,
-  .panel-actions {
-    align-items: flex-start;
+  /* 页头的两个刷新按钮（刷新行情 / 刷新快讯）在移动端隐藏：下拉刷新已覆盖同样功能，
+     这里只保留右侧的更新时间作为刷新结果反馈。桌面端没有下拉手势，按钮必须保留 */
+  .page-heading .panel-actions .el-button {
+    display: none;
+  }
+
+  /* 卡片标题行必须保持单行：标题在左、小标题（日期/条数）与操作按钮靠右，
+     折到第二行会白占一行高度（原 flex-direction: column 已移除） */
+  .panel-header {
+    align-items: center;
     gap: 8px;
   }
 
-  .panel-header {
-    flex-direction: column;
-  }
-
   .panel-actions {
-    width: 100%;
-    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
   }
 
   .stats-row {
@@ -1101,6 +1107,12 @@ h1 {
 
   .temperature-main strong {
     font-size: 26px;
+  }
+
+  /* 四项指标在窄屏改成两列两行（原来一项一行，纵向堆了四行） */
+  .temperature-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 12px;
   }
 
   .market-index-row .index-card {
@@ -1272,11 +1284,15 @@ h1 {
     min-height: 118px;
   }
 
+  /* 卡片位窄，金额一长就会被截断。MetricRail 会在溢出时按比例缩小字号，
+     缩到 --fit-min 为止；下面的 ellipsis 只是缩到底后的兜底（正常不该出现）。
+     --fit-min 由组件读取，改这里即可调下限。 */
   .metric-rail .stat-label {
     overflow: hidden;
     font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
+    --fit-min: 10px;
   }
 
   .metric-rail .stat-value {
@@ -1284,6 +1300,8 @@ h1 {
     font-size: clamp(15px, 4.2vw, 20px);
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* 320px 窄屏下 12px 仍差几像素，再放一点余量 */
+    --fit-min: 11px;
   }
 
   .metric-rail .stat-foot {
@@ -1291,9 +1309,200 @@ h1 {
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
+    --fit-min: 10px;
+  }
+
+  .metric-rail .index-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    --fit-min: 11px;
   }
 
   .metric-rail .stat-card-hint {
     display: none;
   }
+}
+
+/* 数字等宽：价格刷新跳动时列宽不抖 */
+.stat-value,
+.index-value,
+.el-table .cell,
+.data-card__cell strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 移动端底部 Tab Bar：常驻拇指区，替代顶部横向滚动的菜单 */
+@media (max-width: 768px) {
+  .mobile-tabbar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    display: flex;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 -6px 20px rgba(16, 35, 63, 0.06);
+  }
+
+  .mobile-tabbar__item {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 0 2px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    line-height: 1.2;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-tabbar__item .el-icon {
+    font-size: 21px;
+  }
+
+  .mobile-tabbar__item.is-active {
+    color: var(--accent);
+  }
+}
+
+/* 移动端数据卡片列表：替代需要横向拖动的宽表格 */
+.data-card-list {
+  display: grid;
+  gap: 10px;
+}
+
+.data-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.data-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.data-card__name {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-card__rate {
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.data-card__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 字段网格与底部汇总共用同一套三列布局：三等分 + 10px 列间距，列宽都是
+   (行宽 - 2 × 10px) / 3，所以两者列边界逐像素一致。文本对齐也必须在这里统一，
+   否则会出现「上方左对齐、下方居中」的错位观感。 */
+.data-card__grid,
+.data-card__foot {
+  gap: 8px 10px;
+  margin-top: 10px;
+}
+
+/* 网格用 grid 而不是 flex：自选基金卡有 5 个字段，flex 换行后尾行会被
+   space-between 推到两端（第 5 格跑到第 3 列），grid 才会自然回到第 1 列 */
+.data-card__grid {
+  display: grid;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.data-card__foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.data-card__foot > .data-card__cell {
+  flex: 0 0 calc((100% - 20px) / 3);
+}
+
+/* 单元格文本统一居中：标签在上、数值在下 */
+.data-card__grid > .data-card__cell,
+.data-card__foot > .data-card__cell {
+  text-align: center;
+}
+
+.data-card__cell {
+  min-width: 0;
+}
+
+.data-card__cell span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.data-card__cell strong {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 卡片底部行：涨幅汇总（复用 .data-card__cell，布局见上方共用规则）+ 操作按钮。
+   操作按钮必须独占一行并右对齐——留在汇总行里会挤窄三列，导致与上方字段列错位。 */
+/* 操作按钮嵌在元信息行（代码/类型/份额）右端，`margin-left: auto` 顶到右边，
+   换行时也保持靠右。放在这里省掉了独占的一整行（约 26px/卡），
+   且该行右侧原本是空白，不占额外高度。 */
+.data-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* 默认链接按钮 32px 高 / 14px 字号，在 12px 的元信息行里会明显撑高整行 */
+.data-card__meta .el-button {
+  height: 26px;
+  padding: 0 2px;
+  font-size: 13px;
+}
+
+.data-card-empty {
+  padding: 22px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }

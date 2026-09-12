@@ -154,12 +154,12 @@
 ```
 src/components/
 ├── HomePanel.vue              首页（汇总卡 + 指数 + 消息预览 + 持仓预览）
-├── HoldingsPanel.vue          持仓收益
-├── WatchlistPanel.vue         自选（带分组、排序）
+├── HoldingsPanel.vue          持仓收益（桌面表格 / 移动端卡片列表）
+├── WatchlistPanel.vue         自选（带分组、排序；桌面表格 / 移动端卡片列表）
 ├── MarketPanel.vue            大盘指数 + 板块
 ├── NewsPanel.vue              消息快讯（按 tag / 板块筛选）
-├── FloatingActions.vue        可拖拽的「刷新 / 脱敏」悬浮按钮
-├── MetricRail.vue             指标卡片轨道（移动端一行 3 卡片位 + 横滑分页）
+├── FloatingActions.vue        可拖拽的「刷新 / 脱敏」悬浮按钮（移动端隐藏，改下拉刷新与点击数值）
+├── MetricRail.vue             指标卡片轨道（移动端一行 3 卡片位 + 横滑分页 + 文字自适应字号）
 ├── IntradayChartDialog.vue    分时 K 线详情
 ├── PnlTrendDialog.vue         当日收益走势 + 三指数对比
 ├── CreateHoldingDialog.vue
@@ -200,23 +200,50 @@ src/components/
 | `numberFormat.js` | 14 个格式化方法（金额、净值、百分比、持仓字段等） | 任意面板/dialog 渲染金额字段 |
 | `draggableFab.js` | 悬浮按钮的拖拽坐标 + `fabJustDragged` 抑制 click | `FloatingActions.vue` 已使用，将来新增悬浮按钮沿用 |
 | `dialog.js` | `dialogVisible` 计算属性（`v-model:visible` ↔ `update:visible`） | 所有使用 `v-model="dialogVisible"` 的弹窗组件 |
+| `viewport.js` | 响应式 `isMobile`（`matchMedia('(max-width: 768px)')`） | 断点会改变**结构**时（如表格 ↔ 卡片列表）；只改样式仍用 CSS 媒体查询 |
 
 mixin 必须是 `export default { data(), methods() }` 的纯对象，不耦合具体业务字段。组件用 `mixins: [numberFormat, draggableFab, dialogModel]` 注册。
 
+**响应式断点约定**：CSS 断点写在 `src/styles/workspace.css`，JS 断点统一走 `viewport.js`，两者必须同为 `768px`。**禁止** 用 CSS `display: none` 同时渲染表格和卡片两套 DOM——`el-table` 会重复触发测量逻辑，且 DOM 体积翻倍。新增移动端专属结构时，注册 `viewport` mixin 并用 `v-if="isMobile"` 切换。
+
 **禁止** 为只转发 props 的字段写无意义 computed（例如 `newsLoading() { return this.loading }`）。模板直接使用 props。
 
-### 3.4 utils（`src/utils/format.js`）
+### 3.4 utils（`src/utils/`）
 
-- 14 个 formatter 已经抽成纯函数。**禁止** 在组件 `methods` 里再写一遍 `formatMoney / formatPercent / formatNetValue`。
+- `format.js`：14 个 formatter 已经抽成纯函数。**禁止** 在组件 `methods` 里再写一遍 `formatMoney / formatPercent / formatNetValue`。
 - 新增格式化函数请加到 `format.js` 而不是组件里。
 - 函数必须接受 `null/undefined` 并返回占位（一般是 `''` 或 `'—'`），与前端 `loading` 态解耦。
+- `backButton.js`：`registerBackButton(handler)` 注册 Android 物理返回键，返回取消监听函数；`handler` 返回 `true` 表示已消费本次返回。非原生端与插件缺失时返回空实现，调用方不需要判断平台。
 
 ### 3.5 样式（`src/styles/`）
 
 | 文件 | 内容 |
 |---|---|
 | `global.css` | 主题变量（`--bg`/`--text`/`--danger` 等）、`body` 背景、滚动条 |
-| `workspace.css` | 全部「面板/dialog 共享」的 layout class（`.app-shell`、`.workspace-nav`、`.brand-mark`、`.menu-card`、`.stat-card`、`.holding-table` 等） |
+| `workspace.css` | 全部「面板/dialog 共享」的 layout class（`.app-shell`、`.workspace-nav`、`.brand-mark`、`.menu-card`、`.stat-card`、`.holding-table`、`.mobile-tabbar`、`.data-card` 等） |
+
+移动端专属 class 约定（新增时沿用，不要另起名字）：
+
+| class | 用途 |
+|---|---|
+| `.page-heading` | 页面级工具条，**只放操作区**（`.panel-actions` 的更新时间 + 刷新按钮）。页面标题与介绍已全部移除（`h2`/`p` 子规则一并删除），不要再往回加；`justify-content: flex-end` 让操作区靠右单行，移动端同理。移动端把按钮一并隐藏（`.page-heading .panel-actions .el-button { display: none }`），刷新由下拉手势承担、只留更新时间；桌面端没有下拉手势，按钮必须保留 |
+| `.panel-header` / `.panel-tip` | 卡片标题行（`el-card` 的 `#header`）：**任何视口都保持单行**——标题在左，右侧放 `.panel-tip`（数据日期 / 条数）或「完整复盘 / 更多」按钮，靠 `justify-content: space-between` 两端对齐。移动端**不要**给它加 `flex-direction: column`（曾这么写过，小标题会掉到第二行白占一行高度）。宽度不够时优先让 `.panel-tip` 收缩，不要换成折行 |
+| `.temperature-*` | 首页市场温度卡：`.temperature-main > div:first-child` 让「市场情绪」标签与情绪值同行基线对齐（不再各占一行）；`.temperature-metrics` 默认 4 列一行，移动端媒体查询改 2 列两行。指标项超过 4 个时要重新算列数，别让文字换行 |
+| `.metric-rail` / `.metric-rail__cell` / `.metric-rail__dot` | 指标卡轨道：移动端一行 3 卡片位 + 横滑分页，桌面端恢复栅格。卡片内的 `.stat-label` / `.stat-value` / `.stat-foot` / `.index-label` / `.index-value` 会被组件按宽度自动缩字号（下限即元素上的 `--fit-min`），**不要再给这些元素写死 `nowrap` 之外的截断规则**：要改缩放下限只改 `--fit-min`，要新增可自适应的元素就把它加进 `MetricRail` 的 `fitSelector` |
+| `.mobile-tabbar` / `.mobile-tabbar__item` | 底部 Tab Bar，仅在 `@media (max-width: 768px)` 内 `display: flex` |
+| `.pull-refresh` / `.pull-refresh__icon` | 下拉刷新指示器，高度由内联 style 驱动（静止 0、跟随手指撑开、刷新中固定 52px）；只有 `.is-animating`（回弹/收尾）才加高度过渡，跟随手指时必须即时响应 |
+| `.data-card-list` / `.data-card` / `.data-card__cell` | 移动端数据卡片，替代需要横向滚动的宽表格，与 `viewport.js` 的 `isMobile` 配套 |
+| `.data-card__foot` / `.data-card__actions` | 卡片底部行。汇总项**必须复用 `.data-card__cell`**（标签在上、数值在下），并且与 `.data-card__grid` 共用同一条列规则（三等分 + 10px 列间距）与同一个文本对齐（居中）——两处只要有一项不同（列宽被按钮挤窄、或上方左对齐下方居中）就会看出错位。网格用 `grid` 而非 `flex`：自选基金卡有 5 个字段，`flex` 换行后尾行会被 `space-between` 推到两端。操作按钮统一放 `.data-card__actions`，嵌在**元信息行右端**（`margin-left: auto`），不要另起一行——该行右侧原本是空白，独占一行会白占约 34px/卡。按钮 26px 高（`.data-card__meta .el-button`），默认 32px 会撑高整行 |
+
+移动端顶部**不再有任何常驻操作按钮**（不再占掉导航条右侧空间）：刷新走下拽手势
+（`src/utils/pullToRefresh.js`，注册在 `App.vue` 的 `mounted`；`touchmove` 必须显式
+`passive: false`，否则 `preventDefault` 无效、页面会跟着一起滚），脱敏走「点击数值」
+（`App.vue` 的 `MASK_TOGGLE_SELECTOR`，只圈汇总卡数值与卡片数值，并排除
+`.stat-card--clickable`——那张卡整卡可点开会打开走势弹窗）。页头的「刷新行情 / 刷新快讯」
+（`.page-heading .panel-actions` 里的 `.el-button`）同样在移动端隐藏，功能并入下拉刷新。
+桌面端维持右下角两个悬浮球与两个页头刷新按钮不变，**不要**再把刷新/脱敏按钮加回移动端顶部。
+
+`env(safe-area-inset-*)` 只允许出现在 `.app-shell`、`.mobile-tabbar` 两处（分别负责内容区、底部 Tab Bar 的安全区），其他位置不要重复加。移动端顶部条已整条移除（`.workspace-nav { display: none }`），所以不需要再为它留安全区。
 
 **禁止** 在 `.vue` 的 `<style scoped>` 里重复定义这些类。如确实需要局部样式，请用组件自己的局部 class，并通过 `:deep(...)` 选择子组件的最深一层 UI（Element Plus 内部不破例）。
 
