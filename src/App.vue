@@ -1,5 +1,15 @@
 <template>
   <div class="app-shell">
+    <!-- 下拉刷新指示器：静止时高度为 0，完全不占空间 -->
+    <div
+      class="pull-refresh"
+      :class="{ 'is-animating': pullAnimating, 'is-refreshing': pullRefreshing }"
+      :style="{ height: `${pullDistance}px` }"
+    >
+      <el-icon class="pull-refresh__icon">
+        <Refresh />
+      </el-icon><span>{{ pullRefreshLabel }}</span>
+    </div>
     <header class="workspace-nav">
       <div class="brand-mark">
         <span>量化工作台</span><small>Quant Workbench</small>
@@ -58,7 +68,6 @@
       @create="createDialogVisible = true"
       @edit="openEditHolding"
       @remove="removeHolding"
-      @seed-demo="seedDemoData"
     />
     <watchlist-panel
       v-else-if="activeMenu === 'watchlist'"
@@ -93,6 +102,23 @@
       :loading="newsLoading"
       @reload="loadNews"
     />
+
+    <nav
+      class="mobile-tabbar"
+      aria-label="主导航"
+    >
+      <button
+        v-for="tab in mobileTabs"
+        :key="tab.key"
+        type="button"
+        class="mobile-tabbar__item"
+        :class="{ 'is-active': activeMenu === tab.key }"
+        :aria-current="activeMenu === tab.key ? 'page' : null"
+        @click="onMenuSelect(tab.key)"
+      >
+        <el-icon><component :is="tab.icon" /></el-icon><span>{{ tab.label }}</span>
+      </button>
+    </nav>
 
     <intraday-chart-dialog
       v-model:visible="intradayDialogVisible"
@@ -131,6 +157,8 @@
 </template>
 
 <script>
+import { markRaw } from 'vue'
+import { Bell, DataLine, HomeFilled, Refresh, Star, TrendCharts } from '@element-plus/icons-vue'
 import {
   deleteHolding,
   fetchDashboard,
@@ -143,7 +171,6 @@ import {
   saveHolding,
   saveWatchlistGroup,
   saveWatchlistItem,
-  seedDemo,
   updateHolding
 } from './api/dashboard'
 import CreateHoldingDialog from './components/CreateHoldingDialog.vue'
@@ -158,8 +185,40 @@ import NewsPanel from './components/NewsPanel.vue'
 import PnlTrendDialog from './components/PnlTrendDialog.vue'
 import WatchItemDialog from './components/WatchItemDialog.vue'
 import WatchlistPanel from './components/WatchlistPanel.vue'
+import { registerBackButton } from './utils/backButton'
+import { PULL_THRESHOLD, registerPullToRefresh } from './utils/pullToRefresh'
 
 const REFRESH_INTERVAL_MS = 60000
+
+// 刷新进行中时下拉指示器保持的高度（px）
+const PULL_HOLD_HEIGHT = 52
+
+// 点击即可切换脱敏的区域：汇总卡数值 + 移动端卡片里的数值。
+// 排除 .stat-card--clickable（整卡可点会打开走势弹窗，点数值会两个动作打架）。
+const MASK_TOGGLE_SELECTOR = [
+  '.stat-card:not(.stat-card--clickable) .stat-value',
+  '.data-card__cell strong',
+  '.data-card__rate'
+].join(', ')
+
+// 移动端底部导航（与 workspace-menu 的 el-menu-item 一一对应）
+const MOBILE_TABS = [
+  { key: 'home', label: '首页', icon: markRaw(HomeFilled) },
+  { key: 'holdings', label: '持仓', icon: markRaw(TrendCharts) },
+  { key: 'watchlist', label: '自选', icon: markRaw(Star) },
+  { key: 'market', label: '指数', icon: markRaw(DataLine) },
+  { key: 'news', label: '快讯', icon: markRaw(Bell) }
+]
+
+// 打开时需要被物理返回键优先关闭的弹窗
+const DISMISSABLE_DIALOGS = [
+  'intradayDialogVisible',
+  'pnlTrendDialogVisible',
+  'createDialogVisible',
+  'editDialogVisible',
+  'watchItemDialogVisible',
+  'fundHoldingWatchDialogVisible'
+]
 
 const emptyDashboard = () => ({
   portfolio: {
@@ -202,12 +261,19 @@ export default {
     MarketPanel,
     NewsPanel,
     PnlTrendDialog,
+    Refresh,
     WatchItemDialog,
     WatchlistPanel
   },
   data() {
     return {
       activeMenu: 'home',
+      mobileTabs: MOBILE_TABS,
+      unregisterBackButton: null,
+      unregisterPullToRefresh: null,
+      pullDistance: 0,
+      pullAnimating: false,
+      pullRefreshing: false,
       loading: false,
       refreshingAll: false,
       dashboardLoaded: false,
@@ -244,6 +310,10 @@ export default {
     isDashboardInitialLoading() {
       return this.loading && !this.dashboardLoaded
     },
+    pullRefreshLabel() {
+      if (this.pullRefreshing) return '正在刷新…'
+      return this.pullDistance >= PULL_THRESHOLD ? '松开刷新' : '下拉刷新'
+    },
     currentWatchGroups() {
       return this.watchlist.groups.filter(group => group.category === this.watchlistCategory)
     },
@@ -262,11 +332,22 @@ export default {
   created() {
     this.bootstrap()
   },
-  mounted() {
+  async mounted() {
     this.newsRefreshTimer = window.setInterval(() => this.autoRefreshData(), REFRESH_INTERVAL_MS)
+    this.unregisterBackButton = await registerBackButton(() => this.handleNativeBack())
+    this.unregisterPullToRefresh = registerPullToRefresh({
+      onProgress: this.handlePullProgress,
+      onRefresh: this.handlePullRefresh,
+      canRefresh: () => !this.pullRefreshing && !this.refreshingAll
+    })
+    // 顶部不再有刷新/脱敏按钮：刷新走下拉手势，脱敏改为点击页面上的数值
+    document.addEventListener('click', this.handleMaskToggle)
   },
-  beforeUnmount() {
+  async beforeUnmount() {
     window.clearInterval(this.newsRefreshTimer)
+    if (this.unregisterBackButton) this.unregisterBackButton()
+    if (this.unregisterPullToRefresh) this.unregisterPullToRefresh()
+    document.removeEventListener('click', this.handleMaskToggle)
   },
   methods: {
     async bootstrap(force = false) {
@@ -294,6 +375,45 @@ export default {
       } finally {
         this.refreshingAll = false
       }
+    },
+    // 下拉过程中跟随手指撑开指示器；松手回弹时才要过渡，拖拽中不能有
+    handlePullProgress(distance) {
+      if (this.pullRefreshing) return
+      this.pullAnimating = false
+      this.pullDistance = distance
+    },
+    async handlePullRefresh() {
+      if (this.pullRefreshing || this.refreshingAll) return
+      this.pullRefreshing = true
+      this.pullAnimating = true
+      this.pullDistance = PULL_HOLD_HEIGHT
+      try {
+        await this.refreshAll()
+      } finally {
+        this.pullRefreshing = false
+        this.pullDistance = 0
+      }
+    },
+    // 点击数值切换脱敏。可点击范围限定在汇总卡数值与卡片数值上（见 MASK_TOGGLE_SELECTOR），
+    // 不让整页数字都能点，避免列表里随手一划就切换
+    handleMaskToggle(event) {
+      const target = event.target && event.target.closest ? event.target.closest(MASK_TOGGLE_SELECTOR) : null
+      if (!target) return
+      this.holdingsNumbersVisible = !this.holdingsNumbersVisible
+    },
+    handleNativeBack() {
+      if (this.closeTopDialog()) return true
+      if (this.activeMenu !== 'home') {
+        this.onMenuSelect('home')
+        return true
+      }
+      return false
+    },
+    closeTopDialog() {
+      const opened = DISMISSABLE_DIALOGS.find(flag => this[flag])
+      if (!opened) return false
+      this[opened] = false
+      return true
     },
     onMenuSelect(menu) {
       this.activeMenu = menu
@@ -497,15 +617,6 @@ export default {
         await this.bootstrap()
       } catch (error) {
         this.$message.error(error.response?.data?.error || '删除持仓失败')
-      }
-    },
-    async seedDemoData() {
-      try {
-        await seedDemo()
-        this.$message.success('已导入演示持仓')
-        await this.bootstrap()
-      } catch (error) {
-        this.$message.error(error.response?.data?.error || '导入失败')
       }
     }
   }

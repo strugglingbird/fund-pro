@@ -1,7 +1,6 @@
 :root {
   --bg: #f3f6fb;
   --panel: #ffffff;
-  --panel-soft: linear-gradient(135deg, rgba(10, 64, 140, 0.92), rgba(14, 111, 180, 0.82));
   --text: #10233f;
   --muted: #6b7a90;
   --danger: #d64541;
@@ -18,6 +17,8 @@
 body {
   margin: 0;
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  /* 浏览器自带的下拉刷新会和 App 内的下拉刷新手势打架，直接关掉 */
+  overscroll-behavior-y: contain;
   background:
     radial-gradient(circle at top right, rgba(15, 108, 180, 0.12), transparent 30%),
     linear-gradient(180deg, #edf3fb 0%, #f8fbff 100%);
